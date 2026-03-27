@@ -1,0 +1,10 @@
+include src/*.c
+include src/*.h
+include addernet/src/*.c
+include addernet/src/*.h
+include python/*.py
+include README.md
+include README_DEV.md
+include LICENSE
+include Makefile
+include pyproject.toml

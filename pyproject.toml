@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "addernet"
+version = "1.0.8"
+description = "Neural networks with zero multiplications at inference. AdderNet + HDC for embedded systems."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.8"
+dependencies = ["numpy", "scikit-learn", "scipy"]
+authors = [
+    { name = "AdderNet Team" }
+]
+keywords = ["machine-learning", "neural-network", "addernet", "hyperdimensional-computing", "embedded", "no-fpu"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/addernet/addernet"
+Repository = "https://github.com/addernet/addernet"
+
+[project.scripts]
+addernet-build = "addernet.build_ext:build"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["addernet*"]
+exclude = ["addernet.egg-info*", "build*", "dist*", "cache*", "colab*", "examples*"]
+
+[tool.setuptools.package-data]
+addernet = ["src/*.c", "src/*.h", "*.so", "*.dylib", "*.dll"]
