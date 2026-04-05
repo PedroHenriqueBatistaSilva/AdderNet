@@ -47,7 +47,8 @@ __global__ void hdc_predict_batch_kernel(const uint64_t* __restrict__ queries,
 extern "C" int an_hdc_predict_batch_cuda(an_hdc_model *m, const double *X, int *y_pred, int N) {
     if (!m || !X || !y_pred || N <= 0) return -1;
 
-    int hdc_words = HDC_WORDS;
+    int hdc_words = m->hv_words;
+    int hdc_dim = m->hv_dim;
     int n_classes = m->n_classes;
 
     // 1. Allocate host memory for queries
@@ -56,22 +57,20 @@ extern "C" int an_hdc_predict_batch_cuda(an_hdc_model *m, const double *X, int *
 
     // 2. Encode on CPU (Standard Value-Position Binding & Majority Vote)
     for (int i = 0; i < N; i++) {
-        uint16_t counts[HDC_DIM] = {0};
+        uint16_t *counts = (uint16_t *)calloc(hdc_dim, sizeof(uint16_t));
         const double* x = &X[i * m->n_vars];
 
+        uint64_t *val_hv = (uint64_t *)malloc(hdc_words * sizeof(uint64_t));
+        uint64_t *pair_hv = (uint64_t *)malloc(hdc_words * sizeof(uint64_t));
         for (int v = 0; v < m->n_vars; v++) {
             int bin = ((int)x[v] + m->bias[v]) & m->table_mask;
-            
-            hv_t val_hv;
-            hv_from_seed(val_hv, (uint64_t)v * 100003ULL + (uint64_t)bin);
-
-            hv_t pair_hv;
-            hv_bind(pair_hv, m->position_hvs[v], val_hv);
+            hv_from_seed(val_hv, (uint64_t)v * 100003ULL + (uint64_t)bin, hdc_words);
+            hv_bind(pair_hv, &m->position_hvs[v * hdc_words], val_hv, hdc_words);
 
             for (int w = 0; w < hdc_words; w++) {
                 uint64_t word = pair_hv[w];
                 for (int bit = 0; bit < 64; bit++) {
-                    if ((word >> bit) & 1) {
+                    if ((w * 64 + bit) < hdc_dim && ((word >> bit) & 1)) {
                         counts[w * 64 + bit]++;
                     }
                 }
@@ -82,13 +81,15 @@ extern "C" int an_hdc_predict_batch_cuda(an_hdc_model *m, const double *X, int *
         for (int w = 0; w < hdc_words; w++) {
             uint64_t word = 0;
             for (int bit = 0; bit < 64; bit++) {
-                // Ensure we don't read out of bounds of HDC_DIM
-                if (w * 64 + bit < HDC_DIM && counts[w * 64 + bit] > threshold) {
+                if (w * 64 + bit < hdc_dim && counts[w * 64 + bit] > threshold) {
                     word |= (1ULL << bit);
                 }
             }
             h_queries[i * hdc_words + w] = word;
         }
+        free(counts);
+        free(val_hv);
+        free(pair_hv);
     }
 
     // 3. Allocate device memory
