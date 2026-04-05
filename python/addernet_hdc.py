@@ -225,7 +225,7 @@ class AdderNetHDC:
     """
 
     def __init__(self, n_vars=1, n_classes=2, table_size=256, bias=None,
-                 seed=42, _ptr=None):
+                 seed=42, use_gpu=False, _ptr=None):
         """
         Create a new model.
 
@@ -235,7 +235,10 @@ class AdderNetHDC:
             table_size: encoding table size per variable (power of 2)
             bias:       list of bias values per variable (default: table_size//2)
             seed:       random seed for reproducibility
+            use_gpu:    toggle between CPU and CUDA backend
         """
+        self.use_gpu = use_gpu
+
         if _ptr is not None:
             self._ptr = _ptr
             self._n_vars = n_vars
