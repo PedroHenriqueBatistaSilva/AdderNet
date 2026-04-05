@@ -2,7 +2,6 @@
 #define HDC_CORE_H
 
 #include <stdint.h>
-#include <stdalign.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -30,6 +30,6 @@ from .attention import AdderAttention
 
 AnHdcModel = AdderNetHDC
 
-__version__ = "1.2.6"
+__version__ = "1.2.7"
 __all__ = ["AdderNetLayer", "AdderNetHDC", "AnHdcModel", "hdc_detect_backend",
            "AdderCluster", "AdderBoost", "AdderAttention"]
