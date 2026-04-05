@@ -71,7 +71,7 @@ if bdist_wheel is not None:
     cmdclass_dict['bdist_wheel'] = bdist_wheel
 
 setup(
-    version="1.2.2",
+    version="1.2.5",
     ext_modules=ext_modules,
     cmdclass=cmdclass_dict,
     package_data={'addernet': ['src/*.c', 'src/*.h']}

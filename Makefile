@@ -112,7 +112,7 @@ $(CUDA_SO): $(HDC_CORE_OBJ) $(CUDA_OBJ) $(CUDA_BATCH_OBJ) $(HDC_OBJ)
 	$(CC) -shared -o $(CUDA_SO) $(HDC_CORE_OBJ) $(CUDA_OBJ) $(CUDA_BATCH_OBJ) $(HDC_OBJ) $(LDFLAGS) -ldl
 
 # --- CUDA (nvcc native build) ---
-CUDA_NATIVE_SRC = $(SRC_DIR)/addernet_cuda.cu
+CUDA_NATIVE_SRC = $(SRC_DIR)/addernet_cuda.cu $(SRC_DIR)/addernet_hdc_train_cuda.cu
 CUDA_NATIVE_SO  = $(BUILD_DIR)/libaddernet_cuda.so
 
 NVCC := $(shell command -v nvcc 2> /dev/null)

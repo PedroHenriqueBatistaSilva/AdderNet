@@ -61,7 +61,7 @@ _AnHdcPtr = ctypes.c_void_p
 _lib.an_hdc_create.restype = _AnHdcPtr
 _lib.an_hdc_create.argtypes = [
     ctypes.c_int, ctypes.c_int, ctypes.c_int,
-    ctypes.POINTER(ctypes.c_int),
+    ctypes.POINTER(ctypes.c_int), ctypes.c_int
 ]
 
 _lib.an_hdc_free.restype = None
@@ -111,6 +111,20 @@ _lib.an_hdc_predict_batch_avx.argtypes = [
 ]
 
 if _lib_cuda is not None:
+    _lib_cuda.an_hdc_retrain_cuda.restype = ctypes.c_int
+    _lib_cuda.an_hdc_retrain_cuda.argtypes = [
+        _AnHdcPtr,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_float,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
+    ]
+
     _lib_cuda.an_hdc_predict_batch_cuda.restype = ctypes.c_int
     _lib_cuda.an_hdc_predict_batch_cuda.argtypes = [
         _AnHdcPtr,
@@ -225,7 +239,7 @@ class AdderNetHDC:
     """
 
     def __init__(self, n_vars=1, n_classes=2, table_size=256, bias=None,
-                 seed=42, use_gpu=False, _ptr=None):
+                 seed=42, use_gpu=False, hv_dim=2500, use_gpu_training=False, _ptr=None):
         """
         Create a new model.
 
@@ -238,6 +252,8 @@ class AdderNetHDC:
             use_gpu:    toggle between CPU and CUDA backend
         """
         self.use_gpu = use_gpu
+        self.use_gpu_training = use_gpu_training
+        self.hv_dim = hv_dim
 
         if _ptr is not None:
             self._ptr = _ptr
@@ -252,7 +268,7 @@ class AdderNetHDC:
         if bias is not None:
             bias_arr = (ctypes.c_int * n_vars)(*bias)
 
-        self._ptr = _lib.an_hdc_create(n_vars, n_classes, table_size, bias_arr)
+        self._ptr = _lib.an_hdc_create(n_vars, n_classes, table_size, bias_arr, hv_dim)
         if not self._ptr:
             raise MemoryError("an_hdc_create failed")
         self._n_vars = n_vars
