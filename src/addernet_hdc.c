@@ -818,11 +818,17 @@ int an_hdc_predict_batch_avx(const an_hdc_model *m, const double *X,
         }
 
         /* Batch Hamming distance: 4 queries vs each codebook entry */
-        hv_t queries[4] = {0};
-        memcpy((void*)queries[0], query0, m->hv_words * sizeof(uint64_t));
-        memcpy((void*)queries[1], query1, m->hv_words * sizeof(uint64_t));
-        memcpy((void*)queries[2], query2, m->hv_words * sizeof(uint64_t));
-        memcpy((void*)queries[3], query3, m->hv_words * sizeof(uint64_t));
+        uint64_t queries_flat[4 * m->hv_words];
+        memcpy(queries_flat + 0 * m->hv_words, query0, m->hv_words * sizeof(uint64_t));
+        memcpy(queries_flat + 1 * m->hv_words, query1, m->hv_words * sizeof(uint64_t));
+        memcpy(queries_flat + 2 * m->hv_words, query2, m->hv_words * sizeof(uint64_t));
+        memcpy(queries_flat + 3 * m->hv_words, query3, m->hv_words * sizeof(uint64_t));
+
+        uint64_t *q_batch[4];
+        q_batch[0] = queries_flat + 0 * m->hv_words;
+        q_batch[1] = queries_flat + 1 * m->hv_words;
+        q_batch[2] = queries_flat + 2 * m->hv_words;
+        q_batch[3] = queries_flat + 3 * m->hv_words;
 
         int best_c0 = 0, best_d0 = m->hv_dim + 1;
         int best_c1 = 0, best_d1 = m->hv_dim + 1;
@@ -831,7 +837,7 @@ int an_hdc_predict_batch_avx(const an_hdc_model *m, const double *X,
 
         for (int c = 0; c < m->n_classes; c++) {
             int dists[4] = {0, 0, 0, 0};
-            hv_hamming_batch4((const uint64_t*)queries, &m->codebook[c * m->hv_words], dists, m->hv_words);
+            hv_hamming_batch4((const uint64_t*)queries_flat, &m->codebook[c * m->hv_words], dists, m->hv_words);
             if (dists[0] < best_d0) { best_d0 = dists[0]; best_c0 = c; }
             if (dists[1] < best_d1) { best_d1 = dists[1]; best_c1 = c; }
             if (dists[2] < best_d2) { best_d2 = dists[2]; best_c2 = c; }

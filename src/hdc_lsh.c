@@ -54,6 +54,7 @@ hdc_lsh_t* hdc_lsh_build_ex(const uint64_t *codebook, int n_classes, int k, int 
 }
 
 int hdc_lsh_query(const hdc_lsh_t *lsh, const uint64_t* query, int *candidates, int max_candidates, int hv_words) {
+    (void)hv_words;  /* unused — hash derived from codebook, not raw HV */
     int n_cand = 0;
     int *visited = (int *)calloc(lsh->n_classes, sizeof(int));
 

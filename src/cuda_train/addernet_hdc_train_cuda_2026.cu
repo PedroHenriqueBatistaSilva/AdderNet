@@ -542,15 +542,17 @@ extern "C" int an_hdc_retrain_cuda(an_hdc_model *m, const double *X, const int *
     if (lr <= 0.0f) lr = 1.0f;
     if (margin < 0) margin = 0;
 
-    /* Check for unified memory opt-in */
+    /* Check for unified memory opt-in (reserved for future use) */
     int use_um = 0;
     if (getenv("ADDERNET_UNIFIED_MEMORY")) use_um = 1;
-    /* Check for CUDA Graphs opt-in */
+    /* Check for CUDA Graphs opt-in (reserved for future use) */
     int use_graphs = 0;
     if (getenv("ADDERNET_CUDA_GRAPHS")) use_graphs = 1;
-    /* Check for Persistent Kernel opt-in ( Phase 4E) */
+    /* Check for Persistent Kernel opt-in (Phase 4E) */
     int use_persistent = 0;
     if (getenv("ADDERNET_PERSISTENT_KERNEL")) use_persistent = 1;
+    (void)use_um;
+    (void)use_graphs;
 
     /* Validation split */
     int n_val   = n_samples / 4;
