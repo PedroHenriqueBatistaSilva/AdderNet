@@ -284,18 +284,12 @@ class CUDABuildManager:
         if not self.src_dir:
             return False
 
-        cuda_src = self.src_dir / "cuda"
-        if not cuda_src.exists():
-            cuda_src = self.src_dir  # Fallback
-
         sources = [
-            cuda_src / "addernet_cuda_ampere.cu",
-            cuda_src / "cuda_train" / "addernet_hdc_train_cuda_2026.cu",
+            self.src_dir / "addernet_cuda.cu",
+            self.src_dir / "cuda_train" / "addernet_hdc_train_cuda_2026.cu",
         ]
 
-        # Fallback to generic if ampere-specific not present
-        if not sources[0].exists():
-            sources[0] = cuda_src / "addernet_cuda.cu"
+        # Fallback if cuda_train version not found
         if not sources[1].exists():
             sources[1] = self.src_dir / "addernet_hdc_train_cuda.cu"
 
@@ -350,13 +344,22 @@ def build(output_dir: Optional[Path] = None) -> Tuple[Optional[str], Optional[st
         if variant == 'ampere':
             success = manager.build_ampere_variant(here)
         else:
-            # Build generic CUDA
+            # Build generic CUDA (turing, ampere, legacy)
             sources = [
                 manager.src_dir / "addernet_cuda.cu",
-                manager.src_dir / "addernet_hdc_train_cuda.cu",
+                manager.src_dir / "cuda_train" / "addernet_hdc_train_cuda_2026.cu",
             ]
+            # Fallback if cuda_train version not found
+            if not sources[1].exists():
+                sources[1] = manager.src_dir / "addernet_hdc_train_cuda.cu"
             output = here / "libaddernet_cuda.so"
-            success = manager.compile_cuda_sources(output, sources)
+            # Filter out non-existent sources
+            valid_sources = [s for s in sources if s.exists()]
+            if valid_sources:
+                success = manager.compile_cuda_sources(output, valid_sources)
+            else:
+                print("[CUDA 2026] No CUDA sources found")
+                success = False
 
         if success:
             print("[AdderNet 2026] CUDA libraries built successfully")

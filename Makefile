@@ -126,7 +126,7 @@ $(CUDA_NATIVE_SO): $(CUDA_NATIVE_SRC) $(HDC_CORE_HDR) $(HDC_HDR) | $(BUILD_DIR)
 		-I$(SRC_DIR) \
 		$(HDC_OBJ) $(HDC_CORE_OBJ) $(HDC_LSH_OBJ)
 
-cuda_native:
+cuda_native: $(CUDA_NATIVE_SO)
 	@if [ -f "$(CUDA_NATIVE_SO)" ]; then \
 		echo "CUDA extension built successfully (libaddernet_cuda.so)."; \
 	else \
@@ -148,7 +148,7 @@ $(CUDA_2026_SO): $(CUDA_2026_SRC) $(HDC_CORE_HDR) $(HDC_HDR) | $(BUILD_DIR)
 		-I$(SRC_DIR) \
 		$(HDC_OBJ) $(HDC_CORE_OBJ) $(HDC_LSH_OBJ)
 
-cuda_2026:
+cuda_2026: $(CUDA_2026_SO)
 	@if [ -f "$(CUDA_2026_SO)" ]; then \
 		echo "CUDA 2026 extension built successfully (libaddernet_cuda_2026.so)."; \
 	else \
@@ -166,3 +166,16 @@ endif
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+# --- Install libs into Python package dir (dev/Kaggle setup) ---
+PKG_DIR = addernet
+install-libs: all cuda_2026
+	cp -f $(BUILD_DIR)/libaddernet.so $(PKG_DIR)/
+	cp -f $(BUILD_DIR)/libaddernet_hdc.so $(PKG_DIR)/
+	@if [ -f "$(BUILD_DIR)/libaddernet_cuda.so" ]; then \
+		cp -f $(BUILD_DIR)/libaddernet_cuda.so $(PKG_DIR)/; \
+	fi
+	@if [ -f "$(BUILD_DIR)/libaddernet_cuda_2026.so" ]; then \
+		cp -f $(BUILD_DIR)/libaddernet_cuda_2026.so $(PKG_DIR)/; \
+	fi
+	@echo "Libs installed in $(PKG_DIR)/"
