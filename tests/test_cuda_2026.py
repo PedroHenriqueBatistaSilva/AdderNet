@@ -64,7 +64,7 @@ class TestCUDADetection(unittest.TestCase):
             ]
 
             for capability, expected_variant in test_cases:
-                with patch.object(CIDADetector, 'detect') as mock_detect:
+                with patch.object(CUDADetector, 'detect') as mock_detect:
                     mock_detect.return_value = True
                     detector = CUDADetector()
                     detector._capability = capability
@@ -86,7 +86,7 @@ class TestCapabilityDetection(unittest.TestCase):
         mock_cdll.return_value = mock_lib
 
         from addernet.cuda_detector import CUDADetector
-        detector = CVIDIAeDetector()
+        detector = CUDADetector()
 
         # Should try to load libcuda
         # (actual test would need real CUDA or mock)

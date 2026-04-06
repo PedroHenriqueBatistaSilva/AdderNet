@@ -227,7 +227,8 @@ void an_hdc_train(an_hdc_model *m, const double *X, const int *y, int n_samples)
                 int base = w * 64;
                 while (word) {
                     int bit = __builtin_ctzll(word);
-                    bit_counts[base + bit] += w_int;
+                    if (base + bit < m->hv_dim)
+                        bit_counts[base + bit] += w_int;
                     word &= word - 1;
                 }
             }
@@ -646,7 +647,8 @@ int an_hdc_predict(const an_hdc_model *m, const double *x) {
             int base = w * 64;
             while (word) {
                 int bit = __builtin_ctzll(word);
-                counts[base + bit]++;
+                if (base + bit < m->hv_dim)
+                    counts[base + bit]++;
                 word &= word - 1;
             }
         }
@@ -664,7 +666,8 @@ int an_hdc_predict(const an_hdc_model *m, const double *x) {
                 int base = w * 64;
                 while (word) {
                     int bit = __builtin_ctzll(word);
-                    counts[base + bit]++;
+                    if (base + bit < m->hv_dim)
+                        counts[base + bit]++;
                     word &= word - 1;
                 }
             }
@@ -823,12 +826,6 @@ int an_hdc_predict_batch_avx(const an_hdc_model *m, const double *X,
         memcpy(queries_flat + 1 * m->hv_words, query1, m->hv_words * sizeof(uint64_t));
         memcpy(queries_flat + 2 * m->hv_words, query2, m->hv_words * sizeof(uint64_t));
         memcpy(queries_flat + 3 * m->hv_words, query3, m->hv_words * sizeof(uint64_t));
-
-        uint64_t *q_batch[4];
-        q_batch[0] = queries_flat + 0 * m->hv_words;
-        q_batch[1] = queries_flat + 1 * m->hv_words;
-        q_batch[2] = queries_flat + 2 * m->hv_words;
-        q_batch[3] = queries_flat + 3 * m->hv_words;
 
         int best_c0 = 0, best_d0 = m->hv_dim + 1;
         int best_c1 = 0, best_d1 = m->hv_dim + 1;
@@ -1062,7 +1059,8 @@ int an_hdc_predict_folded(const an_hdc_model *m, const double *x) {
             int base = w * 64;
             while (word) {
                 int bit = __builtin_ctzll(word);
-                counts[base + bit]++;
+                if (base + bit < m->hv_dim)
+                    counts[base + bit]++;
                 word &= word - 1;
             }
         }
@@ -1140,7 +1138,8 @@ void an_hdc_predict_top_k(const an_hdc_model *m, const double *x,
             int base = w * 64;
             while (word) {
                 int bit = __builtin_ctzll(word);
-                counts[base + bit]++;
+                if (base + bit < m->hv_dim)
+                    counts[base + bit]++;
                 word &= word - 1;
             }
         }

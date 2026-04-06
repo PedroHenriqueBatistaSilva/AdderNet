@@ -18,8 +18,9 @@ int main(void) {
     int y[] = {0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
     int n = 10;
 
-    printf("Creating model: 2 vars, 2 classes, table size 256\n");
-    an_hdc_model *m = an_hdc_create(2, 2, 256, NULL);
+    printf("Creating model: 2 vars, 2 classes, table size 256, hv_dim 1024\n");
+    int bias[] = {0, 0};
+    an_hdc_model *m = an_hdc_create(2, 2, 256, bias, 1024);
     if (!m) { fprintf(stderr, "create failed\n"); return 1; }
 
     printf("Training on %d samples...\n", n);
