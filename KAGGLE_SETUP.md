@@ -1,10 +1,10 @@
-# AdderGPT-2 v1.4.1 — Kaggle Setup (2× T4, 30GB RAM)
+# AdderGPT-2 v1.4.2 — Kaggle Setup (2× T4, 30GB RAM)
 
-> **Código completo e corrigido** — build com `install-libs`, progresso visível, compatível com CUDA 12.8 + T4 sm_75.
+> **Código completo e corrigido v1.4.2** — build com `install-libs`, progresso visível, GPU training forçado mesmo com detector legacy, CUDA 12.8 + T4 sm_75.
 
 ```python
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  ADDERGPT-2 v1.4.1 — Kaggle | 2× T4 | CUDA 12.8 | sm_75       ║
+# ║  ADDERGPT-2 v1.4.2 — Kaggle | 2× T4 | CUDA 12.8 | sm_75       ║
 # ║  Build: make install-libs → sys.path → Treino com checkpoint   ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
@@ -42,7 +42,7 @@ VERBOSE_LEVEL = 5  # imprime log a cada N épocas
 # ───────────────────────────────────────────────────────────────────
 # 2. CLONE + BUILD + INSTALL-LIBS
 # ───────────────────────────────────────────────────────────────────
-print("🔧 [Setup] AdderNet v1.4.1 — CUDA 12.8 + T4 sm_75")
+print("🔧 [Setup] AdderNet v1.4.2 — CUDA 12.8 + T4 sm_75")
 
 if not KAGGLE_DIR.exists():
     print("📦 Clonando AdderNet...")
@@ -134,7 +134,7 @@ def ram_gb():
         return 0.0  # fallback se psutil indisponível
 
 print("\n" + "="*70)
-print(f"  [{now()}] 🧠 AdderGPT-2 v1.4.1 | Kaggle + 2× T4")
+print(f"  [{now()}] 🧠 AdderGPT-2 v1.4.2 | Kaggle + 2× T4")
 print(f"  Backend: {hdc_detect_backend()} | HV_DIM: {HV_DIM}")
 print(f"  GPU Train: {USE_GPU_TRAINING} | GPU Infer: {USE_GPU_INFERENCE}")
 print("="*70 + "\n")
@@ -314,7 +314,7 @@ try:
             X=X_train, y=y_train,
             n_iter=1, lr=1.0, margin='5%',
             regenerate=0.02, patience=0, interactions=10,
-            verbose=0  # silencioso — nós imprimimos a barra
+            verbose=VERBOSE_LEVEL if (epoch + 1) % VERBOSE_LEVEL == 0 or epoch == 0 else 0
         )
 
         global_epoch = epoch + 1
@@ -368,7 +368,7 @@ print(f"\n[{now()}] [5/5] Salvando modelo final...")
 model.save(str(MODEL_DIR / "adder_lm_model.bin"))
 
 cfg = {
-    "version": "AdderGPT-2 v1.4.1-Kaggle",
+    "version": "AdderGPT-2 v1.4.2-Kaggle",
     "epochs": global_epoch,
     "best_acc": float(best_acc),
     "hv_dim": HV_DIM,
@@ -409,17 +409,41 @@ print(f"{'='*70}")
 |---|---|---|
 | **Build** | `cp *.so /usr/local/lib` manual | `make install-libs` (copia para `addernet/`) |
 | **`load_dataset`** | Não importado → NameError | `from datasets import load_dataset` |
+| **`psutil`** | `import` no topo ANTES do `pip install` → NameError | Import tardio via `importlib` APÓS `pip install` |
 | **Progresso** | Só log do C a cada 5 épocas | Barra de progresso + ETA + RAM por época |
-| **`verbose=0`** no train | Silencia log interno do C | Você controla o output — barra limpa |
+| **GPU Training** | Fallback silencioso para CPU se detector falhar | Carrega `libaddernet_cuda_2026.so` mesmo em modo legacy |
+| **GPU Info** | Sem feedback | Print `[AdderNet] GPU training active: kernel=2026_legacy` |
+| **`verbose`** | `verbose=5` no train (log C polui) | `verbose` só nas épocas de checkpoint |
 | **Checkpoint resume** | Carrega modelo mas não seta | Set `model = ckpt_model` corretamente |
 | **`global_epoch`** | Contagem resetava no resume | Contagem contínua para barra correta |
 | **ETA** | Não existia | Calculado por `(tempo/época) × épocas restantes` |
-| **Zip listing** | Não listava arquivos | Lista tudo que foi salvo |
+
+## Verificação de GPU durante o treino
+
+Rode em **outra célula** enquanto o treino roda:
+
+```python
+import subprocess
+out = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
+print(out.stdout)
+```
+
+Procure por **GPU-Util > 0%** e **Memory-Used > 0MiB** na T4.
+
+Se quiser monitoramento contínuo:
+
+```python
+import subprocess, time
+for _ in range(10):
+    out = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader"], capture_output=True, text=True)
+    print(f"GPU: {out.stdout.strip()}")
+    time.sleep(5)
+```
 
 ## O que esperar no Kaggle
 
 - **Build**: ~30-60s (CPU) + ~60-120s (CUDA 2026)
 - **Feature extraction**: ~5-15min (200k amostras com AdderAttention)
-- **Treino**: depende de `N_ITER` — ~1-3min/época na T4 com GPU training
+- **Treino**: ~1-3min/época na T4 com GPU training
 - **VRAM**: ~260MB por época (HV_DIM=2048, VOCAB_SIZE=8000)
 - **RAM**: pico ~10-15GB durante feature extraction (GC libera depois)
