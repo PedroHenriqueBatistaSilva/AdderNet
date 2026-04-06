@@ -134,23 +134,27 @@ __global__ void update_cb_counts_kernel(
         for (int bit = 0; bit < 64; bit++) {
             if (word & (1ULL << bit)) {
                 int idx = base + bit;
-                atomicAdd(&cb_counts[(size_t)true_c * hv_dim + idx], lr_int);
-                atomicAdd(&cb_counts[(size_t)penalize_c * hv_dim + idx], -lr_int);
+                /* CUDA 12.8 compatibility: atomicAdd requires int* for 32-bit */
+                int *tc_ptr = (int *)&cb_counts[(size_t)true_c * hv_dim + idx];
+                int *pc_ptr = (int *)&cb_counts[(size_t)penalize_c * hv_dim + idx];
+                atomicAdd(tc_ptr, (int)lr_int);
+                atomicAdd(pc_ptr, -(int)lr_int);
 
                 /* In-kernel binary update: set if count > 0, clear otherwise */
-                int tc_val = cb_counts[(size_t)true_c * hv_dim + idx];
-                int pc_val = cb_counts[(size_t)penalize_c * hv_dim + idx];
+                int tc_val = (int)cb_counts[(size_t)true_c * hv_dim + idx];
+                int pc_val = (int)cb_counts[(size_t)penalize_c * hv_dim + idx];
                 uint64_t mask = (1ULL << bit);
 
+                /* CUDA 12.8 compatibility: atomicOr/And requires unsigned long long* */
                 if (tc_val > 0)
-                    atomicOr(&cb_binary[(size_t)true_c * hv_words + w], mask);
+                    atomicOr((unsigned long long *)&cb_binary[(size_t)true_c * hv_words + w], (unsigned long long)mask);
                 else
-                    atomicAnd(&cb_binary[(size_t)true_c * hv_words + w], ~mask);
+                    atomicAnd((unsigned long long *)&cb_binary[(size_t)true_c * hv_words + w], (unsigned long long)~mask);
 
                 if (pc_val > 0)
-                    atomicOr(&cb_binary[(size_t)penalize_c * hv_words + w], mask);
+                    atomicOr((unsigned long long *)&cb_binary[(size_t)penalize_c * hv_words + w], (unsigned long long)mask);
                 else
-                    atomicAnd(&cb_binary[(size_t)penalize_c * hv_words + w], ~mask);
+                    atomicAnd((unsigned long long *)&cb_binary[(size_t)penalize_c * hv_words + w], (unsigned long long)~mask);
             }
         }
     }

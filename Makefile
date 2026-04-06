@@ -139,8 +139,10 @@ CUDA_2026_SO  = $(BUILD_DIR)/libaddernet_cuda_2026.so
 
 $(CUDA_2026_SO): $(CUDA_2026_SRC) $(HDC_CORE_HDR) $(HDC_HDR) | $(BUILD_DIR)
 	nvcc -O3 --use_fast_math -ftz=true -prec-div=false -prec-sqrt=false \
+		-Wno-deprecated-gpu-targets \
 		-std=c++17 -Xcompiler -fPIC -Xcompiler -fopenmp -Xcompiler -ffast-math \
 		-gencode arch=compute_80,code=sm_80 \
+		-gencode arch=compute_75,code=sm_75 \
 		-gencode arch=compute_80,code=compute_80 \
 		-shared $(CUDA_2026_SRC) -o $(CUDA_2026_SO) \
 		-I$(SRC_DIR) \
