@@ -120,6 +120,6 @@ if _cuda_detector:
 
 AnHdcModel = AdderNetHDC
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 __all__ = ["AdderNetLayer", "AdderNetHDC", "AnHdcModel", "hdc_detect_backend",
            "AdderCluster", "AdderBoost", "AdderAttention"]
