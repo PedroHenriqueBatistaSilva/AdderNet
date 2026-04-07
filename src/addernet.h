@@ -41,11 +41,12 @@ static inline void *an_aligned_alloc(size_t alignment, size_t size) {
  */
 typedef struct {
     int    size;                    /* table size (must be power of 2) */
+    int    mask;                    /* size - 1, used for indexing     */
     int    bias;                    /* added to input before masking  */
     int    input_min;               /* min training input value        */
     int    input_max;               /* max training input value        */
     double lr;                      /* learning rate                   */
-    alignas(64) double offset[AN_TABLE_SIZE];
+    double *offset;                  /* dynamically allocated table      */
 } an_layer;
 
 /* ==================================================================

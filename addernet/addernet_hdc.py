@@ -15,6 +15,18 @@ import os
 import ctypes
 import numpy as np
 
+# ---- Verbose flag control (imported from parent) ----
+def _log(msg: str):
+    """Print message only if verbose mode is enabled."""
+    # Try to import from parent package, fallback to env var
+    try:
+        from . import is_verbose
+        if is_verbose():
+            print(msg)
+    except Exception:
+        if os.environ.get("ADDERNET_VERBOSE", "1") == "1":
+            print(msg)
+
 # ---- Locate shared library ----
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -78,16 +90,16 @@ def _try_build_cuda():
     Typical Colab scenario: CUDA toolkit installed after pip install."""
     _nvcc = _which("nvcc") or _which("nvcc.bin")
     if not _nvcc:
-        print("[AdderNet] CUDA: nvcc not found on PATH")
+        _log("[AdderNet] CUDA: nvcc not found on PATH")
         return False
 
-    print(f"[AdderNet] CUDA: found nvcc={_nvcc}")
+    _log(f"[AdderNet] CUDA: found nvcc={_nvcc}")
 
     _src_dir = _find_sources()
     if _src_dir is None:
-        print("[AdderNet] CUDA: source directory not found")
+        _log("[AdderNet] CUDA: source directory not found")
         return False
-    print(f"[AdderNet] CUDA: sources at {_src_dir}")
+    _log(f"[AdderNet] CUDA: sources at {_src_dir}")
 
     cu_src = os.path.join(_src_dir, "addernet_cuda.cu")
     cu_batch_train = os.path.join(_src_dir, "addernet_hdc_train_cuda.cu")
@@ -96,11 +108,11 @@ def _try_build_cuda():
     hdc      = os.path.join(_src_dir, "addernet_hdc.c")
 
     if not os.path.isfile(cu_src) or not os.path.isfile(hdc_core):
-        print(f"[AdderNet] CUDA: critical files missing")
-        print(f"[AdderNet] CUDA: cu_src={os.path.isfile(cu_src)}, hdc_core={os.path.isfile(hdc_core)}")
+        _log(f"[AdderNet] CUDA: critical files missing")
+        _log(f"[AdderNet] CUDA: cu_src={os.path.isfile(cu_src)}, hdc_core={os.path.isfile(hdc_core)}")
         return False
 
-    print("[AdderNet] Auto-compiling CUDA library...")
+    _log("[AdderNet] Auto-compiling CUDA library...")
     import tempfile as _tmp
     _tmpdir = _tmp.mkdtemp(prefix="addernet_cuda_")
     _out_so = os.path.join(_HERE, "libaddernet_cuda.so")
@@ -122,7 +134,7 @@ def _try_build_cuda():
         )
         if _r.returncode != 0:
             _err = _r.stderr.decode('utf-8', errors='replace')
-            print(f"[AdderNet] CUDA: compile error ({compiler} {os.path.basename(src)}): {_err[:500]}")
+            _log(f"[AdderNet] CUDA: compile error ({compiler} {os.path.basename(src)}): {_err[:500]}")
             raise _subprocess.CalledProcessError(_r.returncode, compiler)
         return _obj
 
@@ -131,31 +143,31 @@ def _try_build_cuda():
         if os.path.isfile(_src):
             try:
                 _objs.append(_compile_obj(_src))
-                print(f"[AdderNet] CUDA: compiled {os.path.basename(_src)}")
+                _log(f"[AdderNet] CUDA: compiled {os.path.basename(_src)}")
             except _subprocess.CalledProcessError:
                 pass
 
     if not _objs:
-        print("[AdderNet] CUDA: no CPU objects compiled")
+        _log("[AdderNet] CUDA: no CPU objects compiled")
         return False
 
     try:
-        print(f"[AdderNet] CUDA: compiling addernet_cuda.cu with nvcc...")
+        _log(f"[AdderNet] CUDA: compiling addernet_cuda.cu with nvcc...")
         _cuda_obj = _compile_obj(cu_src, compiler=_nvcc)
         _objs.append(_cuda_obj)
-        print(f"[AdderNet] CUDA: compiled addernet_cuda.cu")
+        _log(f"[AdderNet] CUDA: compiled addernet_cuda.cu")
     except _subprocess.CalledProcessError:
         return False
 
     try:
-        print(f"[AdderNet] CUDA: compiling addernet_hdc_train_cuda.cu with nvcc...")
+        _log(f"[AdderNet] CUDA: compiling addernet_hdc_train_cuda.cu with nvcc...")
         _train_obj = _compile_obj(cu_batch_train, compiler=_nvcc)
         _objs.append(_train_obj)
-        print(f"[AdderNet] CUDA: compiled addernet_hdc_train_cuda.cu")
+        _log(f"[AdderNet] CUDA: compiled addernet_hdc_train_cuda.cu")
     except _subprocess.CalledProcessError:
         return False
 
-    print(f"[AdderNet] CUDA: linking {_out_so} with {len(_objs)} objects...")
+    _log(f"[AdderNet] CUDA: linking {_out_so} with {len(_objs)} objects...")
 
     try:
         _r = _subprocess.run(
@@ -165,26 +177,26 @@ def _try_build_cuda():
         )
         if _r.returncode != 0:
             _err = _r.stderr.decode('utf-8', errors='replace')
-            print(f"[AdderNet] CUDA: link error: {_err[:500]}")
+            _log(f"[AdderNet] CUDA: link error: {_err[:500]}")
             return False
     except _subprocess.CalledProcessError as e:
-        print(f"[AdderNet] CUDA: link exception: {e}")
+        _log(f"[AdderNet] CUDA: link exception: {e}")
         return False
 
     if not os.path.isfile(_out_so):
-        print(f"[AdderNet] CUDA: link completed but {_out_so} does not exist")
+        _log(f"[AdderNet] CUDA: link completed but {_out_so} does not exist")
         return False
 
-    print(f"[AdderNet] CUDA library compiled → {_out_so}")
+    _log(f"[AdderNet] CUDA library compiled → {_out_so}")
 
     # Load it immediately
     global _lib_cuda, _LIB_CUDA_READY
     try:
         _lib_cuda = ctypes.CDLL(_out_so)
-        print(f"[AdderNet] CUDA library loaded!")
+        _log(f"[AdderNet] CUDA library loaded!")
         _LIB_CUDA_READY = True
     except OSError as e:
-        print(f"[AdderNet] CUDA: compiled but failed to load: {e}")
+        _log(f"[AdderNet] CUDA: compiled but failed to load: {e}")
         return False
     return True
 
@@ -196,7 +208,7 @@ try:
     _cuda_detector.detect()
     _capability_int = _cuda_detector.get_capability_int()
     _kernel_variant = _cuda_detector.get_best_kernel_variant()
-    print(f"[AdderNet 2026] Detected: {_kernel_variant} (capability={_capability_int})")
+    _log(f"[AdderNet 2026] Detected: {_kernel_variant} (capability={_capability_int})")
 except Exception as e:
     _cuda_detector = None
     _capability_int = None
@@ -219,7 +231,7 @@ if _kernel_variant in ['ampere', 'turing']:
         if os.path.exists(_cuda_name):
             try:
                 _lib_cuda_2026 = ctypes.CDLL(_cuda_name)
-                print(f"[AdderNet 2026] Loaded cooperative {_kernel_variant} kernel from {_cuda_name}")
+                _log(f"[AdderNet 2026] Loaded cooperative {_kernel_variant} kernel from {_cuda_name}")
                 break
             except OSError:
                 pass
@@ -230,7 +242,7 @@ if _lib_cuda_2026 is None:
     if os.path.exists(_generic_2026):
         try:
             _lib_cuda_2026 = ctypes.CDLL(_generic_2026)
-            print(f"[AdderNet 2026] Loaded generic 2026 kernel (legacy mode) from {_generic_2026}")
+            _log(f"[AdderNet 2026] Loaded generic 2026 kernel (legacy mode) from {_generic_2026}")
         except OSError:
             pass
 
@@ -242,7 +254,7 @@ if not _LIB_CUDA_READY:
         if os.path.exists(_cuda_name):
             try:
                 _lib_cuda = ctypes.CDLL(_cuda_name)
-                print(f"[AdderNet] CUDA library loaded from {_cuda_name}")
+                _log(f"[AdderNet] CUDA library loaded from {_cuda_name}")
                 _LIB_CUDA_READY = True
                 _CUDA_VARIANT = 'generic'
                 break
@@ -256,7 +268,7 @@ if not _LIB_CUDA_READY:
             if os.path.exists(_cuda_name):
                 try:
                     _lib_cuda = ctypes.CDLL(_cuda_name)
-                    print(f"[AdderNet] Auto-compiled CUDA library loaded from {_cuda_name}")
+                    _log(f"[AdderNet] Auto-compiled CUDA library loaded from {_cuda_name}")
                     _LIB_CUDA_READY = True
                     _CUDA_VARIANT = 'generic'
                     break
@@ -628,7 +640,7 @@ class AdderNetHDC:
                 if _selected_kernel is not None:
                     variant_name, cuda_lib = _selected_kernel
                     if verbose_level > 0:
-                        print(f"[AdderNet] GPU training active: kernel={variant_name}")
+                        _log(f"[AdderNet] GPU training active: kernel={variant_name}")
                     cuda_lib.an_hdc_retrain_cuda(
                         self._ptr,
                         X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
@@ -643,7 +655,7 @@ class AdderNetHDC:
                     )
                     _used_gpu = True
                 else:
-                    print("[AdderNet] Warning: use_gpu_training=True but "
+                    _log("[AdderNet] Warning: use_gpu_training=True but "
                           "no CUDA training kernel found. Falling back to CPU.")
 
             if not _used_gpu:

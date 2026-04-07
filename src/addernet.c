@@ -62,7 +62,7 @@ static int an_expand(const an_sample *src, int ns, an_sample *out, int lo, int h
 static void an_train_samples(an_layer *layer, const an_sample *data, int n, int epochs) {
     for (int e = 0; e < epochs; e++) {
         for (int i = 0; i < n; i++) {
-            int idx = (data[i].c + layer->bias) & AN_TABLE_MASK;
+            int idx = (data[i].c + layer->bias) & layer->mask;
             double err  = layer->offset[idx] - data[i].f;
 
             /* Try +lr */
@@ -90,13 +90,15 @@ static void an_train_samples(an_layer *layer, const an_sample *data, int n, int 
 an_layer *an_layer_create(int size, int bias, int input_min, int input_max, double lr) {
     if (size <= 0 || (size & (size - 1)) != 0)
         return NULL;  /* size must be power of 2 */
-    if (size > AN_TABLE_SIZE)
-        return NULL;
 
     an_layer *layer = (an_layer *)an_aligned_alloc(64, sizeof(an_layer));
     if (!layer) return NULL;
 
+    layer->offset = (double *)an_aligned_alloc(64, sizeof(double) * size);
+    if (!layer->offset) { free(layer); return NULL; }
+
     layer->size      = size;
+    layer->mask      = size - 1;
     layer->bias      = bias;
     layer->input_min = input_min;
     layer->input_max = input_max;
@@ -107,6 +109,7 @@ an_layer *an_layer_create(int size, int bias, int input_min, int input_max, doub
 }
 
 void an_layer_free(an_layer *layer) {
+    free(layer->offset);
     free(layer);
 }
 
@@ -146,7 +149,7 @@ int an_train(an_layer *layer,
 }
 
 double an_predict(const an_layer *layer, double input) {
-    int idx = ((int)input + layer->bias) & AN_TABLE_MASK;
+    int idx = ((int)input + layer->bias) & layer->mask;
     return layer->offset[idx];
 }
 
@@ -160,7 +163,7 @@ int an_predict_batch(const an_layer *layer,
     #pragma omp parallel for schedule(static)
 #endif
     for (int i = 0; i < n; i++) {
-        int idx = ((int)inputs[i] + layer->bias) & AN_TABLE_MASK;
+        int idx = ((int)inputs[i] + layer->bias) & layer->mask;
         outputs[i] = layer->offset[idx];
     }
     return 0;

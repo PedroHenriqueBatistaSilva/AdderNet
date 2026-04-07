@@ -5,12 +5,25 @@ import shutil as _shutil
 
 _HERE = Path(__file__).parent
 
+# Verbose flag control (set to False to disable CUDA detection logs)
+# Can be controlled via ADDERNET_VERBOSE environment variable (0/1)
+_ADDERNET_VERBOSE = os.environ.get("ADDERNET_VERBOSE", "1") == "1"
+
+def set_verbose(enabled: bool):
+    """Enable or disable verbose logging output."""
+    global _ADDERNET_VERBOSE
+    _ADDERNET_VERBOSE = enabled
+
+def is_verbose() -> bool:
+    """Check if verbose logging is enabled."""
+    return _ADDERNET_VERBOSE
+
 # CUDA 2026 Detection System
 try:
     from .cuda_detector import CUDADetector
     _cuda_detector = CUDADetector()
     _cuda_detector.detect()
-    if _cuda_detector.is_available:
+    if _ADDERNET_VERBOSE:
         print(f"[AdderNet 2026] {_cuda_detector}")
 except Exception:
     _cuda_detector = None
@@ -122,4 +135,4 @@ AnHdcModel = AdderNetHDC
 
 __version__ = "1.4.1"
 __all__ = ["AdderNetLayer", "AdderNetHDC", "AnHdcModel", "hdc_detect_backend",
-           "AdderCluster", "AdderBoost", "AdderAttention"]
+           "AdderCluster", "AdderBoost", "AdderAttention", "set_verbose", "is_verbose"]
