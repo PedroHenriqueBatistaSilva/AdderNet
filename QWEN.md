@@ -4,7 +4,7 @@
 
 **AdderNet** é uma biblioteca de machine learning que **não usa multiplicação de ponto flutuante** durante a inferência. Em vez disso, utiliza **lookups em tabela (LUT)** e operações de soma inteiras, tornando a inferência viável em microcontroladores sem FPU (ESP32, STM32, RPi).
 
-Versão atual: **1.4.0**
+Versão atual: **1.4.1**
 
 ### Componentes Principais
 

@@ -156,9 +156,8 @@ src/
 
 ## Version Notes
 
-- **pyproject.toml** declares version `1.3.8`
-- **setup.py** also uses version `1.3.8`
-- **`addernet/__init__.py`** still has `__version__ = "1.2.7"` — this is stale and should be updated
+- **pyproject.toml**, **setup.py**, and **`addernet/__init__.py`** all use version `1.4.1`
+- **Changelog**: See `README.md` for "Novidades" section
 
 ## Dependencies
 

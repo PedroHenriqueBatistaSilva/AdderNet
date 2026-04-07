@@ -6,7 +6,7 @@
 
 Biblioteca de machine learning que **não usa multiplicação de ponto flutuante** na inferência. Zero.
 
-> Benchmarks medidos em CPU x86-64 com backend **AVX2** e GPUs NVIDIA via **CUDA 2026**, Python 3.x, v1.4.0.
+> Benchmarks medidos em CPU x86-64 com backend **AVX2** e GPUs NVIDIA via **CUDA 2026**, Python 3.x, v1.4.1.
 
 ---
 
@@ -27,7 +27,19 @@ A biblioteca expõe quatro componentes principais:
 
 ---
 
-## Novidades v1.4.0 🚀
+## Novidades v1.4.1 🔧
+
+### Correções Críticas
+- **Buffer overflow corrigido**: `counts[base + bit]` agora com bounds check — prevenia segfault com `hv_dim` não-múltiplo de 64
+- **`safe_aligned_alloc`**: Wrapper seguro previne NULL returns em `aligned_alloc` com sizes não-alinhados
+- **CUDA 12.8 compatível**: atomic casts (`int16_t*→int*`, `uint64_t*→unsigned long long*`), sm_75 gencode para T4
+
+### Organização
+- Testes Python movidos para `tests/`
+- Wheels offline movidos para `wheels/`
+- `python/` duplicata removida
+
+### Novidades v1.4.0 🚀
 
 ### CUDA 2026 — Modernização Completa
 - **Kernel 2026 Ampere+**: Treinamento cooperativo com shared memory 100KB, warp-level primitives, e unified kernel (encode → Hamming → update em um único launch)

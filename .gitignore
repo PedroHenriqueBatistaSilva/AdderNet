@@ -13,3 +13,7 @@ __pycache__/
 test_hdc
 test_addernet
 *.bin
+# Secrets / local configs
+.openclaude-profile.json
+*.local.json
+*.secret.*
