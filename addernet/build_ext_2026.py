@@ -19,6 +19,17 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 from shutil import which
 
+# Respect verbose flag from parent package
+def _log(msg: str):
+    """Print message only if verbose mode is enabled."""
+    try:
+        from . import is_verbose
+        if is_verbose():
+            print(msg)
+    except Exception:
+        if os.environ.get("ADDERNET_VERBOSE", "1") == "1":
+            print(msg)
+
 # Import our enhanced detector
 try:
     from .cuda_detector import CUDADetector, get_detector
@@ -314,32 +325,32 @@ def build(output_dir: Optional[Path] = None) -> Tuple[Optional[str], Optional[st
     if output_dir is None:
         output_dir = here
 
-    print("[AdderNet 2026] Detecting CUDA...")
+    _log("[AdderNet 2026] Detecting CUDA...")
 
     manager = CUDABuildManager()
 
     if not manager.detector.is_available():
-        print("[AdderNet 2026] CUDA not available, building CPU-only")
+        _log("[AdderNet 2026] CUDA not available, building CPU-only")
 
-    print(f"[AdderNet 2026] {manager.detector}")
+    _log(f"[AdderNet 2026] {manager.detector}")
 
     # Determine which variant to build
     variant = manager.detector.get_best_kernel_variant()
 
     # Find sources
     if not manager.find_sources():
-        print("[AdderNet 2026] Source files not found")
+        _log("[AdderNet 2026] Source files not found")
         return None, None
 
     # Build CPU libraries first
-    print("[AdderNet 2026] Building CPU libraries...")
+    _log("[AdderNet 2026] Building CPU libraries...")
 
     # ... (CPU build logic from original build_ext.py)
     # This is simplified for the migration
 
     # Build CUDA variant if available
     if manager.detector.is_available():
-        print(f"[AdderNet 2026] Building {variant} CUDA variant...")
+        _log(f"[AdderNet 2026] Building {variant} CUDA variant...")
 
         if variant == 'ampere':
             success = manager.build_ampere_variant(here)
@@ -358,13 +369,13 @@ def build(output_dir: Optional[Path] = None) -> Tuple[Optional[str], Optional[st
             if valid_sources:
                 success = manager.compile_cuda_sources(output, valid_sources)
             else:
-                print("[CUDA 2026] No CUDA sources found")
+                _log("[CUDA 2026] No CUDA sources found")
                 success = False
 
         if success:
-            print("[AdderNet 2026] CUDA libraries built successfully")
+            _log("[AdderNet 2026] CUDA libraries built successfully")
         else:
-            print("[AdderNet 2026] CUDA build failed, falling back to CPU")
+            _log("[AdderNet 2026] CUDA build failed, falling back to CPU")
 
     return str(here / "libaddernet_hdc.so"), str(here / "libaddernet_cuda.so")
 

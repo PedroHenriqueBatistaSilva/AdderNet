@@ -6,7 +6,7 @@
 
 Biblioteca de machine learning que **não usa multiplicação de ponto flutuante** na inferência. Zero.
 
-> Benchmarks medidos em CPU x86-64 com backend **AVX2** e GPUs NVIDIA via **CUDA 2026**, Python 3.x, v1.4.1.
+> Benchmarks medidos em CPU x86-64 com backend **AVX2** e GPUs NVIDIA via **CUDA 2026**, Python 3.x, v1.4.5.
 
 ---
 
@@ -27,7 +27,14 @@ A biblioteca expõe quatro componentes principais:
 
 ---
 
-## Novidades v1.4.1 🔧
+## Novidades v1.4.5 🔇
+
+### Controle de Logs (Verbose Mode)
+- **`set_verbose(False)`**: Silencia todos os logs de detecção CUDA e build
+- **Variável de ambiente**: `ADDERNET_VERBOSE=0` para controle sem alterar código
+- Ideal para scripts automatizados, produção e notebooks limpos
+
+### Novidades v1.4.1 🔧
 
 ### Correções Críticas
 - **Buffer overflow corrigido**: `counts[base + bit]` agora com bounds check — prevenia segfault com `hv_dim` não-múltiplo de 64
@@ -78,6 +85,26 @@ pip install -e .
 ```
 
 ---
+
+## Controle de Logs (Verbose)
+
+Para silenciar os logs de detecção de CUDA e build (ideal para scripts e produção):
+
+```python
+from addernet import AdderNetLayer, set_verbose
+
+# Desabilitar logs
+set_verbose(False)
+
+# Agora os imports e treinos não imprimem nada no console
+rede = AdderNetLayer(size=256)
+```
+
+Você também pode usar a variável de ambiente `ADDERNET_VERBOSE=0`:
+
+```bash
+ADDERNET_VERBOSE=0 python main.py
+```
 
 ## Uso — AdderNetLayer (uma variável)
 

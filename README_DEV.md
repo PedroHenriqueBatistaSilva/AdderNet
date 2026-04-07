@@ -1,6 +1,13 @@
 # AdderNet — Developer Guide
 
-Architecture, API reference, and internals for contributors and anyone integrating AdderNet into C/C++ projects.
+Architecture, API reference, and internals for contributors. Current version: **1.4.5**.
+
+## Changelog
+
+### v1.4.5 — Controle de Verbose
+- Adicionada função `set_verbose(bool)` para habilitar/desabilitar logs
+- Variável de ambiente `ADDERNET_VERBOSE` para controle sem código
+- Todos os prints de build e detecção CUDA agora respeitam a flag
 
 ## Architecture
 

@@ -23,7 +23,7 @@ try:
     from .cuda_detector import CUDADetector
     _cuda_detector = CUDADetector()
     _cuda_detector.detect()
-    if _ADDERNET_VERBOSE:
+    if is_verbose():
         print(f"[AdderNet 2026] {_cuda_detector}")
 except Exception:
     _cuda_detector = None
@@ -133,6 +133,6 @@ if _cuda_detector:
 
 AnHdcModel = AdderNetHDC
 
-__version__ = "1.4.1"
+__version__ = "1.4.5"
 __all__ = ["AdderNetLayer", "AdderNetHDC", "AnHdcModel", "hdc_detect_backend",
            "AdderCluster", "AdderBoost", "AdderAttention", "set_verbose", "is_verbose"]

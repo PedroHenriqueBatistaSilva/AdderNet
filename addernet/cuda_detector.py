@@ -13,6 +13,17 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 
+# Respect verbose flag from parent package
+def _log(msg: str):
+    """Print message only if verbose mode is enabled."""
+    try:
+        from . import is_verbose
+        if is_verbose():
+            print(msg)
+    except Exception:
+        if os.environ.get("ADDERNET_VERBOSE", "1") == "1":
+            print(msg)
+
 
 class CUDADetector:
     """
