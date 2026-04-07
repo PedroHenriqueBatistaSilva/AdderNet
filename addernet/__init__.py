@@ -150,6 +150,6 @@ def get_cuda_info():
 
 AnHdcModel = AdderNetHDC
 
-__version__ = "1.4.5"
+__version__ = "1.4.6"
 __all__ = ["AdderNetLayer", "AdderNetHDC", "AnHdcModel", "hdc_detect_backend",
            "AdderCluster", "AdderBoost", "AdderAttention", "set_verbose", "is_verbose"]
