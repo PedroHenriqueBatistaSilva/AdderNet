@@ -1,6 +1,7 @@
 build/
 dist/
 cache/
+wheels/
 __pycache__/
 *.pyc
 *.o
@@ -11,3 +12,4 @@ __pycache__/
 *.egg-info/
 test_hdc
 test_addernet
+*.bin

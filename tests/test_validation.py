@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Validation tests for addernet 1.0.6"""
+"""Validation tests for AdderNet"""
 
 import sys
-sys.path.insert(0, '.')
+import os
+# Add project root to path (tests/ is one level below root)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from addernet import AdderNetHDC, hdc_detect_backend, AdderCluster, AdderBoost
 from sklearn.datasets import load_breast_cancer, load_wine, load_diabetes
