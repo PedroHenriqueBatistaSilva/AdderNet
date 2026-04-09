@@ -2,7 +2,7 @@ import os
 import sys
 import shutil
 import subprocess
-from setuptools import setup, Extension
+from setuptools import setup
 from setuptools.command.build_ext import build_ext
 
 try:
@@ -79,10 +79,9 @@ class MakeBuildExt(build_ext):
                            ignore=shutil.ignore_patterns('*.o', '*.so'))
             print(f"Copied C/CUDA sources to {pkg_src} for runtime build support")
 
-# We define a dummy Extension to ensure setuptools marks the wheel as platform-specific
-ext_modules = [
-    Extension(name="addernet._dummy", sources=[])
-]
+# Extensions are built via Makefile, not setuptools.
+# We use an empty list to prevent setuptools from trying to compile anything.
+ext_modules = []
 
 cmdclass_dict = {'build_ext': MakeBuildExt}
 if bdist_wheel is not None:
