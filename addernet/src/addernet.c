@@ -18,6 +18,8 @@
 typedef struct { int c; double f; } an_sample;
 
 static int an_expand(const an_sample *src, int ns, an_sample *out, int lo, int hi) {
+    if (!src || !out || ns <= 0 || hi < lo) return 0;
+
     an_sample s[256];
     if (ns > 256) ns = 256;
     memcpy(s, src, ns * sizeof(an_sample));
@@ -29,9 +31,22 @@ static int an_expand(const an_sample *src, int ns, an_sample *out, int lo, int h
                 an_sample t = s[i]; s[i] = s[j]; s[j] = t;
             }
 
-    /* Slopes for extrapolation beyond edges */
-    double sl = (s[1].f - s[0].f) / (double)(s[1].c - s[0].c);
-    double sr = (s[ns-1].f - s[ns-2].f) / (double)(s[ns-1].c - s[ns-2].c);
+    /* Slopes for extrapolation beyond edges. A single sample or repeated
+     * x-values are valid: use a constant function when no distinct neighbor
+     * exists instead of reading outside the array or dividing by zero. */
+    double sl = 0.0, sr = 0.0;
+    for (int j = 1; j < ns; j++) {
+        if (s[j].c != s[0].c) {
+            sl = (s[j].f - s[0].f) / (double)(s[j].c - s[0].c);
+            break;
+        }
+    }
+    for (int j = ns - 2; j >= 0; j--) {
+        if (s[j].c != s[ns-1].c) {
+            sr = (s[ns-1].f - s[j].f) / (double)(s[ns-1].c - s[j].c);
+            break;
+        }
+    }
 
     int n = 0;
     for (int v = lo; v <= hi; v++) {
@@ -62,7 +77,7 @@ static int an_expand(const an_sample *src, int ns, an_sample *out, int lo, int h
 static void an_train_samples(an_layer *layer, const an_sample *data, int n, int epochs) {
     for (int e = 0; e < epochs; e++) {
         for (int i = 0; i < n; i++) {
-            int idx = (data[i].c + layer->bias) & AN_TABLE_MASK;
+            int idx = (data[i].c + layer->bias) & layer->mask;
             double err  = layer->offset[idx] - data[i].f;
 
             /* Try +lr */
@@ -90,13 +105,15 @@ static void an_train_samples(an_layer *layer, const an_sample *data, int n, int 
 an_layer *an_layer_create(int size, int bias, int input_min, int input_max, double lr) {
     if (size <= 0 || (size & (size - 1)) != 0)
         return NULL;  /* size must be power of 2 */
-    if (size > AN_TABLE_SIZE)
-        return NULL;
 
     an_layer *layer = (an_layer *)an_aligned_alloc(64, sizeof(an_layer));
     if (!layer) return NULL;
 
+    layer->offset = (double *)an_aligned_alloc(64, sizeof(double) * size);
+    if (!layer->offset) { free(layer); return NULL; }
+
     layer->size      = size;
+    layer->mask      = size - 1;
     layer->bias      = bias;
     layer->input_min = input_min;
     layer->input_max = input_max;
@@ -107,6 +124,8 @@ an_layer *an_layer_create(int size, int bias, int input_min, int input_max, doub
 }
 
 void an_layer_free(an_layer *layer) {
+    if (!layer) return;
+    free(layer->offset);
     free(layer);
 }
 
@@ -146,7 +165,7 @@ int an_train(an_layer *layer,
 }
 
 double an_predict(const an_layer *layer, double input) {
-    int idx = ((int)input + layer->bias) & AN_TABLE_MASK;
+    int idx = ((int)input + layer->bias) & layer->mask;
     return layer->offset[idx];
 }
 
@@ -160,7 +179,7 @@ int an_predict_batch(const an_layer *layer,
     #pragma omp parallel for schedule(static)
 #endif
     for (int i = 0; i < n; i++) {
-        int idx = ((int)inputs[i] + layer->bias) & AN_TABLE_MASK;
+        int idx = ((int)inputs[i] + layer->bias) & layer->mask;
         outputs[i] = layer->offset[idx];
     }
     return 0;

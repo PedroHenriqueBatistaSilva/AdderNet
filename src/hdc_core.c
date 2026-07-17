@@ -272,14 +272,11 @@ int hv_hamming_folded(const uint64_t *a, const uint64_t *b, int hv_words_folded)
 int hv_hamming_avx2(const_hv_t a, const_hv_t b, int hv_words) { return hv_hamming_unrolled(a, b, hv_words); }
 void hv_bundle_avx2(hv_t out, const_hv_t *vecs, int n, int hv_words, int hv_dim) { hv_bundle(out, vecs, n, hv_words, hv_dim); }
 
-/* Backend detection: returns 0=SCALAR, 1=AVX2, 2=NEON, 3=CUDA */
 int hdc_detect_backend(void) {
-#ifdef HAVE_AVX2
+#if defined(HAVE_AVX2) || defined(__AVX2__)
     return 1;
-#elif defined(HAVE_NEON)
+#elif defined(HAVE_NEON) || defined(__ARM_NEON) || defined(__ARM_NEON__)
     return 2;
-#elif defined(HAVE_CUDA)
-    return 3;
 #else
     return 0;
 #endif

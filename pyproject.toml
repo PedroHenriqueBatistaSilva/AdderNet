@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "addernet"
-version = "1.4.6"
+version = "1.5.0.post1"
 description = "Neural networks with zero multiplications at inference. AdderNet + HDC for embedded systems."
 readme = "README.md"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 requires-python = ">=3.8"
 dependencies = ["numpy", "scikit-learn", "scipy"]
 authors = [
@@ -18,13 +18,13 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
@@ -32,11 +32,12 @@ classifiers = [
 dev = ["pytest"]
 
 [project.urls]
-Homepage = "https://github.com/addernet/addernet"
-Repository = "https://github.com/addernet/addernet"
+Homepage = "https://github.com/PedroHenriqueBatistaSilva/AdderNet"
+Repository = "https://github.com/PedroHenriqueBatistaSilva/AdderNet"
 
 [project.scripts]
 addernet-build = "addernet.build_ext:build"
+addernet-selftest = "addernet.selftest:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -44,4 +45,4 @@ include = ["addernet*"]
 exclude = ["addernet.egg-info*", "build*", "dist*", "cache*", "colab*", "examples*"]
 
 [tool.setuptools.package-data]
-addernet = ["src/*.c", "src/*.h", "*.so", "*.dylib", "*.dll"]
+addernet = ["src/*.c", "src/*.h", "src/*.cu"]

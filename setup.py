@@ -2,20 +2,9 @@ import os
 import sys
 import shutil
 import subprocess
-from setuptools import setup
+from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 
-try:
-    from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
-    class bdist_wheel(_bdist_wheel):
-        def get_tag(self):
-            python, abi, plat = super().get_tag()
-            if plat.startswith('linux'):
-                # Force PyPI compliant tag for binary wheels built on linux
-                plat = 'manylinux2014_x86_64'
-            return python, abi, plat
-except ImportError:
-    bdist_wheel = None
 
 class MakeBuildExt(build_ext):
     def build_extensions(self):
@@ -79,16 +68,15 @@ class MakeBuildExt(build_ext):
                            ignore=shutil.ignore_patterns('*.o', '*.so'))
             print(f"Copied C/CUDA sources to {pkg_src} for runtime build support")
 
-# Extensions are built via Makefile, not setuptools.
-# We use an empty list to prevent setuptools from trying to compile anything.
-ext_modules = []
+# We define a dummy Extension to ensure setuptools marks the wheel as platform-specific
+ext_modules = [
+    Extension(name="addernet._dummy", sources=[])
+]
 
 cmdclass_dict = {'build_ext': MakeBuildExt}
-if bdist_wheel is not None:
-    cmdclass_dict['bdist_wheel'] = bdist_wheel
 
 setup(
-    version="1.4.6",
+    version="1.5.0.post1",
     ext_modules=ext_modules,
     cmdclass=cmdclass_dict,
     package_data={'addernet': ['src/*.c', 'src/*.h', 'src/*.cu']}

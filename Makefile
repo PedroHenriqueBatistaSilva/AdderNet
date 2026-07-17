@@ -1,181 +1,54 @@
-# AdderNet Library — Makefile
-# ============================
-#   make              Build both libraries (.so)
-#   make addernet     Build libaddernet.so only
-#   make hdc          Build libaddernet_hdc.so only
-#   make test         Build and run all tests
-#   make clean        Remove build artifacts
+# AdderNet — portable CPU build. Use `make NATIVE=1` for local AVX2/native flags.
+CC ?= cc
+ARCH := $(shell uname -m)
+BUILD_DIR := build
+SRC_DIR := src
+NATIVE ?= 0
+OPENMP ?= 1
 
-CC        = gcc
-ARCH      := $(shell uname -m)
-OS        := $(shell uname -s)
-
-# OPT-7: Automatic platform detection
-ifeq ($(ARCH), x86_64)
-    SIMD_FLAGS = -mavx2 -mpopcnt -march=native
-    SIMD_DEF   = -DHAVE_AVX2 -D__AVX2__
-else ifeq ($(ARCH), aarch64)
-    SIMD_FLAGS = -march=armv8-a+simd -mfpu=neon
-    SIMD_DEF   = -DHAVE_NEON -D__ARM_NEON
-else ifeq ($(ARCH), armv7l)
-    SIMD_FLAGS = -mfpu=neon-vfpv4 -mfloat-abi=hard
-    SIMD_DEF   = -DHAVE_NEON -D__ARM_NEON
-else
-    SIMD_FLAGS =
-    SIMD_DEF   =
+BASE_FLAGS := -O3 -fPIC -Wall -Wextra
+SIMD_FLAGS :=
+SIMD_DEF :=
+ifeq ($(NATIVE),1)
+  ifeq ($(ARCH),x86_64)
+    SIMD_FLAGS += -march=native -mpopcnt
+    SIMD_DEF += -DHAVE_AVX2 -D__AVX2__
+  else ifeq ($(ARCH),aarch64)
+    SIMD_FLAGS += -march=native
+    SIMD_DEF += -DHAVE_NEON -D__ARM_NEON
+  endif
 endif
+ifeq ($(OPENMP),1)
+  OMP_FLAGS := -fopenmp
+else
+  OMP_FLAGS :=
+endif
+CFLAGS := $(BASE_FLAGS) $(SIMD_FLAGS) $(SIMD_DEF) $(OMP_FLAGS)
+LDFLAGS := -lm -lpthread $(OMP_FLAGS)
 
-CFLAGS    = -O3 -ffast-math -funroll-loops -fPIC -Wall -Wextra $(SIMD_FLAGS) $(SIMD_DEF)
-LDFLAGS   = -lm -lpthread -fopenmp
-SRC_DIR   = src
-BUILD_DIR = build
-TESTS_DIR = tests
+LIB_SO := $(BUILD_DIR)/libaddernet.so
+HDC_SO := $(BUILD_DIR)/libaddernet_hdc.so
 
-# --- AdderNet (single-variable) ---
-LIB_SRC  = $(SRC_DIR)/addernet.c
-LIB_HDR  = $(SRC_DIR)/addernet.h
-LIB_SO   = $(BUILD_DIR)/libaddernet.so
-LIB_OBJ  = $(BUILD_DIR)/addernet.o
-
-# --- AdderNet-HDC (multivariate) ---
-HDC_CORE_SRC = $(SRC_DIR)/hdc_core.c
-HDC_CORE_HDR = $(SRC_DIR)/hdc_core.h
-HDC_LSH_SRC  = $(SRC_DIR)/hdc_lsh.c
-HDC_LSH_HDR  = $(SRC_DIR)/hdc_lsh.h
-HDC_SRC      = $(SRC_DIR)/addernet_hdc.c
-HDC_HDR      = $(SRC_DIR)/addernet_hdc.h
-HDC_SO       = $(BUILD_DIR)/libaddernet_hdc.so
-HDC_CORE_OBJ = $(BUILD_DIR)/hdc_core.o
-HDC_LSH_OBJ  = $(BUILD_DIR)/hdc_lsh.o
-HDC_OBJ      = $(BUILD_DIR)/addernet_hdc.o
-
-.PHONY: all addernet hdc cuda cuda_2026 test test_addernet test_hdc clean
-
-all: addernet hdc
+.PHONY: all clean install-libs test native
+all: $(LIB_SO) $(HDC_SO)
+native:
+	$(MAKE) NATIVE=1 all
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-addernet: $(LIB_SO)
+$(LIB_SO): $(SRC_DIR)/addernet.c $(SRC_DIR)/addernet.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -shared $(SRC_DIR)/addernet.c -o $@ $(LDFLAGS)
 
-$(LIB_OBJ): $(LIB_SRC) $(LIB_HDR) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $(LIB_SRC) -o $(LIB_OBJ)
+$(HDC_SO): $(SRC_DIR)/addernet.c $(SRC_DIR)/hdc_core.c $(SRC_DIR)/hdc_lsh.c $(SRC_DIR)/addernet_hdc.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -shared $^ -o $@ $(LDFLAGS)
 
-$(LIB_SO): $(LIB_OBJ)
-	$(CC) -shared -o $(LIB_SO) $(LIB_OBJ) $(LDFLAGS)
+install-libs: all
+	cp -f $(LIB_SO) addernet/
+	cp -f $(HDC_SO) addernet/
 
-hdc: $(HDC_SO)
-
-$(HDC_CORE_OBJ): $(HDC_CORE_SRC) $(HDC_CORE_HDR) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $(HDC_CORE_SRC) -o $(HDC_CORE_OBJ)
-
-$(HDC_LSH_OBJ): $(HDC_LSH_SRC) $(HDC_LSH_HDR) $(HDC_CORE_HDR) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $(HDC_LSH_SRC) -o $(HDC_LSH_OBJ)
-
-$(HDC_OBJ): $(HDC_SRC) $(HDC_HDR) $(HDC_CORE_HDR) $(HDC_LSH_HDR) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $(HDC_SRC) -o $(HDC_OBJ)
-
-$(HDC_SO): $(HDC_CORE_OBJ) $(HDC_LSH_OBJ) $(HDC_OBJ)
-	$(CC) -shared -o $(HDC_SO) $(HDC_CORE_OBJ) $(HDC_LSH_OBJ) $(HDC_OBJ) $(LDFLAGS)
-
-# --- Tests ---
-
-test: test_addernet test_hdc
-
-test_addernet: $(LIB_SO) $(TESTS_DIR)/test_main.c
-	$(CC) -O3 -march=native -I$(SRC_DIR) -o $(BUILD_DIR)/test_addernet \
-		$(TESTS_DIR)/test_main.c -L$(BUILD_DIR) -laddernet $(LDFLAGS) -Wl,-rpath,$(BUILD_DIR)
-	$(BUILD_DIR)/test_addernet
-
-test_hdc: $(HDC_SO) $(TESTS_DIR)/test_hdc_main.c
-	$(CC) -O3 -march=native -I$(SRC_DIR) -o $(BUILD_DIR)/test_hdc \
-		$(TESTS_DIR)/test_hdc_main.c -L$(BUILD_DIR) -laddernet_hdc $(LDFLAGS) -Wl,-rpath,$(BUILD_DIR)
-	$(BUILD_DIR)/test_hdc
-
-# --- CUDA (inline PTX, no nvcc required) ---
-
-CUDA_SRC = $(SRC_DIR)/hdc_core_cuda.c
-CUDA_BATCH_SRC = $(SRC_DIR)/hdc_cuda_batch.c
-CUDA_OBJ = $(BUILD_DIR)/hdc_core_cuda.o
-CUDA_BATCH_OBJ = $(BUILD_DIR)/hdc_cuda_batch.o
-CUDA_SO  = $(BUILD_DIR)/libaddernet_hdc_cuda.so
-
-cuda: $(CUDA_SO)
-
-$(CUDA_OBJ): $(CUDA_SRC) $(HDC_CORE_HDR) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $(CUDA_SRC) -o $(CUDA_OBJ)
-
-$(CUDA_BATCH_OBJ): $(CUDA_BATCH_SRC) $(HDC_CORE_HDR) $(HDC_HDR) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $(CUDA_BATCH_SRC) -o $(CUDA_BATCH_OBJ)
-
-$(CUDA_SO): $(HDC_CORE_OBJ) $(CUDA_OBJ) $(CUDA_BATCH_OBJ) $(HDC_OBJ)
-	$(CC) -shared -o $(CUDA_SO) $(HDC_CORE_OBJ) $(CUDA_OBJ) $(CUDA_BATCH_OBJ) $(HDC_OBJ) $(LDFLAGS) -ldl
-
-# --- CUDA (nvcc native build) ---
-CUDA_NATIVE_SRC = $(SRC_DIR)/addernet_cuda.cu $(SRC_DIR)/addernet_hdc_train_cuda.cu
-CUDA_NATIVE_SO  = $(BUILD_DIR)/libaddernet_cuda.so
-
-NVCC := $(shell command -v nvcc 2> /dev/null)
-
-ifdef NVCC
-all: addernet hdc cuda_native cuda_2026
-
-$(CUDA_NATIVE_SO): $(CUDA_NATIVE_SRC) $(HDC_CORE_HDR) $(HDC_HDR) | $(BUILD_DIR)
-	nvcc -O3 -Xcompiler -fPIC -shared \
-		$(CUDA_NATIVE_SRC) -o $(CUDA_NATIVE_SO) \
-		-I$(SRC_DIR) \
-		$(HDC_OBJ) $(HDC_CORE_OBJ) $(HDC_LSH_OBJ)
-
-cuda_native: $(CUDA_NATIVE_SO)
-	@if [ -f "$(CUDA_NATIVE_SO)" ]; then \
-		echo "CUDA extension built successfully (libaddernet_cuda.so)."; \
-	else \
-		echo "WARNING: libaddernet_cuda.so not found. Running without CUDA support."; \
-	fi
-
-# --- CUDA 2026: Cooperative retrain kernel + generic inference ---
-CUDA_2026_SRC = $(SRC_DIR)/addernet_cuda.cu $(SRC_DIR)/cuda_train/addernet_hdc_train_cuda_2026.cu
-CUDA_2026_SO  = $(BUILD_DIR)/libaddernet_cuda_2026.so
-
-$(CUDA_2026_SO): $(CUDA_2026_SRC) $(HDC_CORE_HDR) $(HDC_HDR) | $(BUILD_DIR)
-	nvcc -O3 --use_fast_math -ftz=true -prec-div=false -prec-sqrt=false \
-		-Wno-deprecated-gpu-targets \
-		-std=c++17 -Xcompiler -fPIC -Xcompiler -fopenmp -Xcompiler -ffast-math \
-		-gencode arch=compute_80,code=sm_80 \
-		-gencode arch=compute_75,code=sm_75 \
-		-gencode arch=compute_80,code=compute_80 \
-		-shared $(CUDA_2026_SRC) -o $(CUDA_2026_SO) \
-		-I$(SRC_DIR) \
-		$(HDC_OBJ) $(HDC_CORE_OBJ) $(HDC_LSH_OBJ)
-
-cuda_2026: $(CUDA_2026_SO)
-	@if [ -f "$(CUDA_2026_SO)" ]; then \
-		echo "CUDA 2026 extension built successfully (libaddernet_cuda_2026.so)."; \
-	else \
-		echo "WARNING: libaddernet_cuda_2026.so not found."; \
-	fi
-else
-all: addernet hdc
-
-cuda_native:
-	@echo "nvcc not found. Skipping libaddernet_cuda.so build."
-
-cuda_2026:
-	@echo "nvcc not found. Skipping libaddernet_cuda_2026.so build."
-endif
+test: install-libs
+	python -m pytest -q
 
 clean:
-	rm -rf $(BUILD_DIR)
-
-# --- Install libs into Python package dir (dev/Kaggle setup) ---
-PKG_DIR = addernet
-install-libs: all cuda_2026
-	cp -f $(BUILD_DIR)/libaddernet.so $(PKG_DIR)/
-	cp -f $(BUILD_DIR)/libaddernet_hdc.so $(PKG_DIR)/
-	@if [ -f "$(BUILD_DIR)/libaddernet_cuda.so" ]; then \
-		cp -f $(BUILD_DIR)/libaddernet_cuda.so $(PKG_DIR)/; \
-	fi
-	@if [ -f "$(BUILD_DIR)/libaddernet_cuda_2026.so" ]; then \
-		cp -f $(BUILD_DIR)/libaddernet_cuda_2026.so $(PKG_DIR)/; \
-	fi
-	@echo "Libs installed in $(PKG_DIR)/"
+	rm -rf $(BUILD_DIR) addernet/libaddernet.so addernet/libaddernet_hdc.so

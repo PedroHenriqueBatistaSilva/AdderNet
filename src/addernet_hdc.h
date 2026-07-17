@@ -68,6 +68,14 @@ void an_hdc_set_threads(an_hdc_model *m, int n_threads);
 int an_hdc_save(const an_hdc_model *m, const char *path);
 an_hdc_model *an_hdc_load(const char *path);
 
+/* Safe metadata/codebook accessors for FFI bindings. */
+int an_hdc_get_n_vars(const an_hdc_model *m);
+int an_hdc_get_n_classes(const an_hdc_model *m);
+int an_hdc_get_table_size(const an_hdc_model *m);
+int an_hdc_get_hv_dim(const an_hdc_model *m);
+int an_hdc_get_hv_words(const an_hdc_model *m);
+int an_hdc_get_codebook(const an_hdc_model *m, uint64_t *out, int out_words);
+
 /* CUDA prototypes */
 int an_hdc_predict_batch_cuda(an_hdc_model *m, const double *X, int *y_pred, int N);
 int an_hdc_retrain_cuda(an_hdc_model *m, const double *X, const int *y, int n_samples, int n_iter, float lr, int margin, int patience, int verbose, int *epochs_run);

@@ -13,17 +13,20 @@ Usage:
 """
 
 import os
+import sys
 import ctypes
 import numpy as np
 
 # ---- Locate shared library ----
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_LIB_NAMES = [
-    os.path.join(_HERE, "libaddernet.so"),
-    os.path.join(_HERE, "libaddernet.dylib"),
-    "libaddernet.so",
-]
+if sys.platform == "darwin":
+    _base_names = ["libaddernet.dylib"]
+elif os.name == "nt":
+    _base_names = ["addernet.dll"]
+else:
+    _base_names = ["libaddernet.so"]
+_LIB_NAMES = [os.path.join(_HERE, name) for name in _base_names] + _base_names
 
 _lib = None
 for _name in _LIB_NAMES:
@@ -110,6 +113,12 @@ class AdderNetLayer:
         if _ptr is not None:
             self._ptr = _ptr
         else:
+            if size <= 0 or size & (size - 1):
+                raise ValueError("size must be a positive power of two")
+            if input_max < input_min:
+                raise ValueError("input_max must be >= input_min")
+            if lr <= 0 or not np.isfinite(lr):
+                raise ValueError("lr must be positive and finite")
             self._ptr = _lib.an_layer_create(size, bias, input_min, input_max, lr)
             if not self._ptr:
                 raise MemoryError("an_layer_create failed")
@@ -121,9 +130,13 @@ class AdderNetLayer:
 
     def train(self, inputs, targets, epochs_raw=1000, epochs_expanded=4000):
         """Train on input→target pairs. Accepts lists or numpy arrays."""
-        inputs  = np.ascontiguousarray(inputs,  dtype=np.float64)
-        targets = np.ascontiguousarray(targets, dtype=np.float64)
+        inputs  = np.ascontiguousarray(inputs,  dtype=np.float64).reshape(-1)
+        targets = np.ascontiguousarray(targets, dtype=np.float64).reshape(-1)
         n = len(inputs)
+        if n == 0:
+            raise ValueError("at least one training sample is required")
+        if not np.all(np.isfinite(inputs)) or not np.all(np.isfinite(targets)):
+            raise ValueError("inputs and targets must contain only finite values")
         if len(targets) != n:
             raise ValueError("inputs and targets must have same length")
         ret = _lib.an_train(
@@ -141,8 +154,12 @@ class AdderNetLayer:
 
     def predict_batch(self, inputs):
         """Batch prediction. Accepts numpy array, returns numpy array."""
-        inputs  = np.ascontiguousarray(inputs, dtype=np.float64)
+        inputs  = np.ascontiguousarray(inputs, dtype=np.float64).reshape(-1)
         n = len(inputs)
+        if n == 0:
+            return np.empty(0, dtype=np.float64)
+        if not np.all(np.isfinite(inputs)):
+            raise ValueError("inputs must contain only finite values")
         outputs = np.empty(n, dtype=np.float64)
         _lib.an_predict_batch(
             self._ptr,
@@ -154,6 +171,7 @@ class AdderNetLayer:
 
     def save(self, path):
         """Save layer to binary file."""
+        path = os.fspath(path)
         ret = _lib.an_save(self._ptr, path.encode("utf-8"))
         if ret != 0:
             raise IOError(f"an_save failed: {path}")
@@ -161,6 +179,7 @@ class AdderNetLayer:
     @classmethod
     def load(cls, path):
         """Load layer from binary file. Returns new AdderNetLayer."""
+        path = os.fspath(path)
         ptr = _lib.an_load(path.encode("utf-8"))
         if not ptr:
             raise IOError(f"an_load failed: {path}")

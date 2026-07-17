@@ -108,6 +108,30 @@ class CUDADetector:
 
         return self.nvcc_path is not None or self.libcuda_path is not None
 
+
+    # Public aliases kept for the documented/tested API.
+    def find_nvcc(self) -> bool:
+        return self._detect_nvcc()
+
+    def detect_capability(self):
+        self._detect_runtime_lib()
+        self._detect_gpu_capability()
+        return self.capability
+
+    @property
+    def _capability(self):
+        return self.get_capability_int()
+
+    @_capability.setter
+    def _capability(self, value):
+        if value is None:
+            self.capability = None
+        elif isinstance(value, tuple):
+            self.capability = value
+        else:
+            value = int(value)
+            self.capability = (value // 10, value % 10)
+
     def _expand_path(self, path: str) -> List[str]:
         """Expand environment variables and globs in paths."""
         expanded = os.path.expandvars(path)

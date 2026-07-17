@@ -1,9 +1,4 @@
-"""
-AdderBoost — Gradient Boosting with AdderNetLayer as base learners.
-
-Each estimator learns the residual of the ensemble so far.
-Inference: sum of lookup tables — O(n_estimators) memory reads.
-"""
+"""AdderBoost — additive gradient boosting with LUT base learners."""
 
 import warnings
 import numpy as np
@@ -11,102 +6,90 @@ from .addernet import AdderNetLayer
 
 
 class AdderBoost:
-    """
-    Gradient Boosting with AdderNetLayer.
+    """Gradient boosting with one :class:`AdderNetLayer` per feature."""
 
-    Each step trains one AdderNetLayer per feature on the current residual.
-    Inference is a sum of LUT lookups — zero multiplication.
-    """
-
-    def __init__(self, n_estimators: int = 10, learning_rate: float = 0.1,
-                 lr_boost: float = None, **layer_kwargs):
-        """
-        Args:
-            n_estimators: number of boosting rounds
-            learning_rate: boosting learning rate / shrinkage (0.0 to 1.0)
-            lr_boost: DEPRECATED alias for learning_rate (backward compatibility)
-            **layer_kwargs: passed to AdderNetLayer (size, bias, input_min, input_max, lr, etc.)
-        """
-        self.n_estimators = n_estimators
+    def __init__(self, n_estimators=10, learning_rate=0.1, lr_boost=None,
+                 epochs_raw=1000, epochs_expanded=4000, **layer_kwargs):
+        if n_estimators <= 0:
+            raise ValueError("n_estimators must be positive")
         if lr_boost is not None:
             warnings.warn("lr_boost is deprecated, use learning_rate instead",
                           DeprecationWarning, stacklevel=2)
-            self.learning_rate = lr_boost
-        else:
-            self.learning_rate = learning_rate
-        self.layer_kwargs = layer_kwargs  # does NOT include learning_rate
+            learning_rate = lr_boost
+        if not np.isfinite(learning_rate) or learning_rate <= 0:
+            raise ValueError("learning_rate must be a positive finite number")
+        if epochs_raw < 0 or epochs_expanded < 0:
+            raise ValueError("training epochs cannot be negative")
+        self.n_estimators = int(n_estimators)
+        self.learning_rate = float(learning_rate)
+        self.epochs_raw = int(epochs_raw)
+        self.epochs_expanded = int(epochs_expanded)
+        self.layer_kwargs = layer_kwargs
         self.estimators = []
         self.base_prediction = 0.0
         self.n_features = None
 
-    # Backward compatibility property
     @property
     def lr_boost(self):
         return self.learning_rate
 
     @lr_boost.setter
     def lr_boost(self, value):
-        self.learning_rate = value
+        self.learning_rate = float(value)
 
-    def fit(self, X: np.ndarray, y_cont: np.ndarray, verbose: bool = False) -> 'AdderBoost':
-        """
-        Train on data.
-
-        Args:
-            X: (n_samples, n_features) — normalized
-            y_cont: (n_samples,) — continuous target values
-            verbose: print residual progress
-        """
+    @staticmethod
+    def _validate_X(X, n_features=None):
         X = np.ascontiguousarray(X, dtype=np.float64)
-        y_cont = np.ascontiguousarray(y_cont, dtype=np.float64)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
+            raise ValueError("X must be a non-empty 2-D array")
+        if n_features is not None and X.shape[1] != n_features:
+            raise ValueError(f"X has {X.shape[1]} features; expected {n_features}")
+        if not np.all(np.isfinite(X)):
+            raise ValueError("X must contain only finite values")
+        return X
+
+    def fit(self, X, y_cont, verbose=False):
+        X = self._validate_X(X)
+        y_cont = np.ascontiguousarray(y_cont, dtype=np.float64).reshape(-1)
+        if len(y_cont) != len(X):
+            raise ValueError("X and y_cont must have the same number of samples")
+        if not np.all(np.isfinite(y_cont)):
+            raise ValueError("y_cont must contain only finite values")
+
         self.n_features = X.shape[1]
-
-        residual = y_cont.copy()
         self.base_prediction = float(y_cont.mean())
-        residual -= self.base_prediction
-
+        residual = y_cont - self.base_prediction
         self.estimators = []
 
         for step in range(self.n_estimators):
             step_nets = []
-            step_preds = np.zeros(len(X))
-
+            step_preds = np.zeros(len(X), dtype=np.float64)
             for i in range(self.n_features):
                 net = AdderNetLayer(**self.layer_kwargs)
-                net.train(X[:, i], residual)
+                net.train(X[:, i], residual,
+                          epochs_raw=self.epochs_raw,
+                          epochs_expanded=self.epochs_expanded)
                 step_preds += net.predict_batch(X[:, i])
                 step_nets.append(net)
-
-            step_preds /= self.n_features
             residual -= self.learning_rate * step_preds
             self.estimators.append(step_nets)
-
             if verbose:
-                mean_res = np.abs(residual).mean()
-                print(f"  Boost step {step + 1}/{self.n_estimators} | mean residual: {mean_res:.4f}")
-
+                print(f"  Boost step {step + 1}/{self.n_estimators} | mean residual: {np.abs(residual).mean():.4f}")
         return self
 
-    def predict_batch(self, X: np.ndarray) -> np.ndarray:
-        """
-        Batch inference — sum of all estimator LUT lookups.
-
-        Args:
-            X: (n_samples, n_features)
-        Returns:
-            (n_samples,) continuous predictions
-        """
-        X = np.ascontiguousarray(X, dtype=np.float64)
-        pred = np.full(len(X), self.base_prediction)
-
+    def predict_batch(self, X):
+        if self.n_features is None or not self.estimators:
+            raise RuntimeError("model is not fitted")
+        X = self._validate_X(X, self.n_features)
+        pred = np.full(len(X), self.base_prediction, dtype=np.float64)
         for step_nets in self.estimators:
-            step_pred = np.zeros(len(X))
+            step_pred = np.zeros(len(X), dtype=np.float64)
             for i, net in enumerate(step_nets):
                 step_pred += net.predict_batch(X[:, i])
-            pred += self.learning_rate * step_pred / len(step_nets)
-
+            pred += self.learning_rate * step_pred
         return pred
 
-    def predict(self, x) -> float:
-        """Single-sample inference."""
-        return float(self.predict_batch(np.array(x).reshape(1, -1))[0])
+    def predict(self, x):
+        return float(self.predict_batch(np.asarray(x).reshape(1, -1))[0])

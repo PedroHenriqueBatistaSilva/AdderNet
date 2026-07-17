@@ -19,13 +19,19 @@
  * Uses deterministic hv_from_seed — zero storage, computed on the fly. */
 static inline void an_hdc_encode(const an_hdc_model *m, int var, double val, hv_t out) {
     int bin = ((int)val + m->bias[var]) & m->table_mask;
-    if (m->use_hadamard) {
+    if (m->use_cache && m->cache && !m->use_hadamard && !m->use_circulant) {
+        const uint64_t *cached = (const uint64_t *)m->cache +
+            ((size_t)var * (size_t)m->table_size + (size_t)bin) * (size_t)m->hv_words;
+        hv_copy(out, cached, m->hv_words);
+    } else if (m->use_hadamard) {
         hv_from_hadamard(out, var, bin, m->hv_words, m->hv_dim);
     } else if (m->use_circulant && m->circulant.circulant_ready) {
         hv_from_circulant(out, &m->circulant, var, bin, m->hv_words, m->hv_dim);
     } else {
+        uint64_t value_hv[m->hv_words];
         uint64_t seed = (uint64_t)var * 100003ULL + (uint64_t)bin;
-        hv_from_seed(out, seed, m->hv_words);
+        hv_from_seed(value_hv, seed, m->hv_words);
+        hv_bind(out, &m->position_hvs[var * m->hv_words], value_hv, m->hv_words);
     }
 }
 
@@ -33,7 +39,7 @@ static inline void an_hdc_encode(const an_hdc_model *m, int var, double val, hv_
 
 an_hdc_model *an_hdc_create(int n_vars, int n_classes, int table_size, const int *bias, int hv_dim)
 {
-    if (n_vars <= 0 || n_classes <= 0 || table_size <= 0)
+    if (n_vars <= 0 || n_classes <= 0 || table_size <= 0 || hv_dim <= 0)
         return NULL;
     if ((table_size & (table_size - 1)) != 0)
         return NULL;  /* must be power of 2 */
@@ -100,7 +106,9 @@ void an_hdc_free(an_hdc_model *m) {
     free(m->bias);
     free(m->position_hvs);
     free(m->codebook);
-    
+    free(m->cache);
+    free(m->circulant.base_vector);
+
     if (m->codebook_folded) free(m->codebook_folded);
     if (m->lsh_index) hdc_lsh_free(m->lsh_index);
     if (m->interaction_pairs) free(m->interaction_pairs);
@@ -153,9 +161,7 @@ void an_hdc_train(an_hdc_model *m, const double *X, const int *y, int n_samples)
                 int bin = ((int)X[i * m->n_vars + v] + m->bias[v]) & m->table_mask;
                 hv_from_circulant(&pairs[(v) * m->hv_words], &m->circulant, v, bin, m->hv_words, m->hv_dim);
             } else {
-                uint64_t val_hv[m->hv_words];
-                an_hdc_encode(m, v, X[i * m->n_vars + v], val_hv);
-                hv_bind(&pairs[(v) * m->hv_words], &m->position_hvs[v * m->hv_words], val_hv, m->hv_words);
+                an_hdc_encode(m, v, X[i * m->n_vars + v], &pairs[(v) * m->hv_words]);
             }
         }
 
@@ -299,9 +305,7 @@ int an_hdc_retrain(an_hdc_model *m, const double *X, const int *y,
                 int bin = ((int)X[i * m->n_vars + v] + m->bias[v]) & m->table_mask;
                 hv_from_circulant(&pairs[(v) * m->hv_words], &m->circulant, v, bin, m->hv_words, m->hv_dim);
             } else {
-                uint64_t val_hv[m->hv_words];
-                an_hdc_encode(m, v, X[i * m->n_vars + v], val_hv);
-                hv_bind(&pairs[(v) * m->hv_words], &m->position_hvs[v * m->hv_words], val_hv, m->hv_words);
+                an_hdc_encode(m, v, X[i * m->n_vars + v], &pairs[(v) * m->hv_words]);
             }
         }
         /* Problem 6: Interaction encoding */
@@ -523,9 +527,7 @@ int an_hdc_retrain(an_hdc_model *m, const double *X, const int *y,
                                     int bin = ((int)X[s * m->n_vars + v] + m->bias[v]) & m->table_mask;
                                     hv_from_hadamard(&pairs_regen[(v) * m->hv_words], v, bin, m->hv_words, m->hv_dim);
                                 } else {
-                                    uint64_t val_hv[m->hv_words];
-                                    an_hdc_encode(m, v, X[s * m->n_vars + v], val_hv);
-                                    hv_bind(&pairs_regen[(v) * m->hv_words], &m->position_hvs[v * m->hv_words], val_hv, m->hv_words);
+                                    an_hdc_encode(m, v, X[s * m->n_vars + v], &pairs_regen[(v) * m->hv_words]);
                                 }
                             }
                             int bit_count = 0;
@@ -624,19 +626,8 @@ int an_hdc_predict(const an_hdc_model *m, const double *x) {
 
     /* Encode each variable: bind(pos, value) and accumulate bit counts */
     for (int v = 0; v < m->n_vars; v++) {
-        int bin = ((int)x[v] + m->bias[v]) & m->table_mask;
-        
         uint64_t pair_hv[m->hv_words];
-        if (m->use_hadamard) {
-            hv_from_hadamard(pair_hv, v, bin, m->hv_words, m->hv_dim);
-        } else if (m->use_circulant && m->circulant.circulant_ready) {
-            hv_from_circulant(pair_hv, &m->circulant, v, bin, m->hv_words, m->hv_dim);
-        } else {
-            uint64_t val_hv[m->hv_words];
-            uint64_t seed = (uint64_t)v * 100003ULL + (uint64_t)bin;
-            hv_from_seed(val_hv, seed, m->hv_words);
-            hv_bind(pair_hv, &m->position_hvs[v * m->hv_words], val_hv, m->hv_words);
-        }
+        an_hdc_encode(m, v, x[v], pair_hv);
 
         /* Cache for interaction encoding */
         if (var_hvs) hv_copy(&var_hvs[v * m->hv_words], pair_hv, m->hv_words);
@@ -730,6 +721,11 @@ int an_hdc_predict_batch_avx(const an_hdc_model *m, const double *X,
 {
     if (!m || !X || !outputs || n <= 0) return -1;
 
+    /* The four-way fast path currently encodes only base variables. Preserve
+     * exact semantics for models using interaction, LSH, or folded modes. */
+    if (m->n_interaction_pairs > 0 || m->use_lsh || m->use_folded)
+        return an_hdc_predict_batch(m, X, outputs, n);
+
     /* Process in groups of 4, remainder handled scalar */
     int i = 0;
     for (; i + 3 < n; i += 4) {
@@ -776,28 +772,28 @@ int an_hdc_predict_batch_avx(const an_hdc_model *m, const double *X,
                 uint64_t word0 = pair0[w];
                 while (word0) {
                     int bit = __builtin_ctzll(word0);
-                    counts0[base + bit]++;
+                    if (base + bit < m->hv_dim) counts0[base + bit]++;
                     word0 &= word0 - 1;
                 }
 
                 uint64_t word1 = pair1[w];
                 while (word1) {
                     int bit = __builtin_ctzll(word1);
-                    counts1[base + bit]++;
+                    if (base + bit < m->hv_dim) counts1[base + bit]++;
                     word1 &= word1 - 1;
                 }
 
                 uint64_t word2 = pair2[w];
                 while (word2) {
                     int bit = __builtin_ctzll(word2);
-                    counts2[base + bit]++;
+                    if (base + bit < m->hv_dim) counts2[base + bit]++;
                     word2 &= word2 - 1;
                 }
 
                 uint64_t word3 = pair3[w];
                 while (word3) {
                     int bit = __builtin_ctzll(word3);
-                    counts3[base + bit]++;
+                    if (base + bit < m->hv_dim) counts3[base + bit]++;
                     word3 &= word3 - 1;
                 }
             }
@@ -858,12 +854,28 @@ int an_hdc_predict_batch_avx(const an_hdc_model *m, const double *X,
 
 void an_hdc_warm_cache(an_hdc_model *m) {
     if (!m) return;
-    
-    
-    if (m->cache) {
-        
-        m->use_cache = 1;
+
+    size_t total_words = (size_t)m->n_vars * (size_t)m->table_size * (size_t)m->hv_words;
+    uint64_t *cache = (uint64_t *)safe_aligned_alloc(64, total_words * sizeof(uint64_t));
+    if (!cache) {
+        m->use_cache = 0;
+        return;
     }
+
+    for (int v = 0; v < m->n_vars; v++) {
+        for (int bin = 0; bin < m->table_size; bin++) {
+            uint64_t value_hv[m->hv_words];
+            uint64_t *dst = cache +
+                ((size_t)v * (size_t)m->table_size + (size_t)bin) * (size_t)m->hv_words;
+            uint64_t seed = (uint64_t)v * 100003ULL + (uint64_t)bin;
+            hv_from_seed(value_hv, seed, m->hv_words);
+            hv_bind(dst, &m->position_hvs[v * m->hv_words], value_hv, m->hv_words);
+        }
+    }
+
+    free(m->cache);
+    m->cache = cache;
+    m->use_cache = (!m->use_hadamard && !m->use_circulant);
 }
 
 void an_hdc_set_cache(an_hdc_model *m, int use_cache) {
@@ -904,6 +916,7 @@ int an_hdc_predict_batch_mt(const an_hdc_model *m, const double *X,
         if (n_threads <= 0) n_threads = 1;
     }
     if (n_threads > n) n_threads = n;
+    if (n_threads > 64) n_threads = 64;
 
     pthread_t threads[64];
     predict_thread_args args[64];
@@ -917,10 +930,14 @@ int an_hdc_predict_batch_mt(const an_hdc_model *m, const double *X,
             .start  = t * chunk,
             .end    = (t == n_threads - 1) ? n : (t + 1) * chunk
         };
-        pthread_create(&threads[t], NULL, predict_worker, &args[t]);
+        if (pthread_create(&threads[t], NULL, predict_worker, &args[t]) != 0) {
+            /* Complete this chunk synchronously when thread creation fails. */
+            predict_worker(&args[t]);
+            threads[t] = (pthread_t)0;
+        }
     }
     for (int t = 0; t < n_threads; t++)
-        pthread_join(threads[t], NULL);
+        if (threads[t]) pthread_join(threads[t], NULL);
     return 0;
 }
 
@@ -931,28 +948,36 @@ void an_hdc_set_threads(an_hdc_model *m, int n_threads) {
 
 /* ---- Save / Load ---- */
 
+#define AN_HDC_FILE_MAGIC 0x32434448u  /* "HDC2" little-endian */
+#define AN_HDC_FILE_VERSION 2u
+
+static int write_exact(const void *ptr, size_t size, size_t count, FILE *f) {
+    return fwrite(ptr, size, count, f) == count ? 0 : -1;
+}
+
 int an_hdc_save(const an_hdc_model *m, const char *path) {
     if (!m || !path) return -1;
 
     FILE *f = fopen(path, "wb");
     if (!f) return -1;
 
-    /* Header */
-    fwrite(&m->n_vars,     sizeof(int), 1, f);
-    fwrite(&m->n_classes,  sizeof(int), 1, f);
-    fwrite(&m->table_size, sizeof(int), 1, f);
+    uint32_t magic = AN_HDC_FILE_MAGIC;
+    uint32_t version = AN_HDC_FILE_VERSION;
+    int ok = 0;
+    ok |= write_exact(&magic, sizeof(magic), 1, f);
+    ok |= write_exact(&version, sizeof(version), 1, f);
+    ok |= write_exact(&m->n_vars, sizeof(int), 1, f);
+    ok |= write_exact(&m->n_classes, sizeof(int), 1, f);
+    ok |= write_exact(&m->table_size, sizeof(int), 1, f);
+    ok |= write_exact(&m->hv_dim, sizeof(int), 1, f);
+    ok |= write_exact(m->bias, sizeof(int), (size_t)m->n_vars, f);
+    ok |= write_exact(m->position_hvs, sizeof(uint64_t),
+                      (size_t)m->hv_words * (size_t)m->n_vars, f);
+    ok |= write_exact(m->codebook, sizeof(uint64_t),
+                      (size_t)m->hv_words * (size_t)m->n_classes, f);
 
-    /* Bias */
-    fwrite(m->bias, sizeof(int), m->n_vars, f);
-
-    /* Position hypervectors */
-    fwrite(m->position_hvs, m->hv_words * sizeof(uint64_t), m->n_vars, f);
-
-    /* Codebook */
-    fwrite(m->codebook, m->hv_words * sizeof(uint64_t), m->n_classes, f);
-
-    fclose(f);
-    return 0;
+    if (fclose(f) != 0) ok = -1;
+    return ok == 0 ? 0 : -1;
 }
 
 an_hdc_model *an_hdc_load(const char *path) {
@@ -961,26 +986,42 @@ an_hdc_model *an_hdc_load(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
 
-    int n_vars, n_classes, table_size;
-    if (fread(&n_vars,     sizeof(int), 1, f) != 1) goto fail;
-    if (fread(&n_classes,  sizeof(int), 1, f) != 1) goto fail;
-    if (fread(&table_size, sizeof(int), 1, f) != 1) goto fail;
+    uint32_t first = 0, version = 0;
+    int n_vars = 0, n_classes = 0, table_size = 0, hv_dim = 2500;
+    if (fread(&first, sizeof(first), 1, f) != 1) goto fail;
 
-    an_hdc_model *m = an_hdc_create(n_vars, n_classes, table_size, NULL, 2500);
+    if (first == AN_HDC_FILE_MAGIC) {
+        if (fread(&version, sizeof(version), 1, f) != 1 || version != AN_HDC_FILE_VERSION)
+            goto fail;
+        if (fread(&n_vars, sizeof(int), 1, f) != 1) goto fail;
+        if (fread(&n_classes, sizeof(int), 1, f) != 1) goto fail;
+        if (fread(&table_size, sizeof(int), 1, f) != 1) goto fail;
+        if (fread(&hv_dim, sizeof(int), 1, f) != 1) goto fail;
+    } else {
+        /* Backward-compatible v1 format: first field was n_vars and hv_dim
+         * was implicitly fixed at 2500. */
+        n_vars = (int)first;
+        if (fread(&n_classes, sizeof(int), 1, f) != 1) goto fail;
+        if (fread(&table_size, sizeof(int), 1, f) != 1) goto fail;
+    }
+
+    if (n_vars <= 0 || n_vars > 100000 || n_classes <= 0 || n_classes > 100000 ||
+        table_size <= 0 || (table_size & (table_size - 1)) != 0 ||
+        hv_dim <= 0 || hv_dim > 10000000)
+        goto fail;
+
+    an_hdc_model *m = an_hdc_create(n_vars, n_classes, table_size, NULL, hv_dim);
     if (!m) goto fail;
 
-    /* Re-read bias (overwrite auto-generated) */
-    if (fread(m->bias, sizeof(int), n_vars, f) != (size_t)n_vars) {
+    if (fread(m->bias, sizeof(int), (size_t)n_vars, f) != (size_t)n_vars) {
         an_hdc_free(m); goto fail;
     }
-
-    /* Read position hypervectors */
-    if (fread(m->position_hvs, m->hv_words * sizeof(uint64_t), n_vars, f) != (size_t)n_vars) {
+    size_t pos_words = (size_t)m->hv_words * (size_t)n_vars;
+    if (fread(m->position_hvs, sizeof(uint64_t), pos_words, f) != pos_words) {
         an_hdc_free(m); goto fail;
     }
-
-    /* Read codebook */
-    if (fread(m->codebook, m->hv_words * sizeof(uint64_t), n_classes, f) != (size_t)n_classes) {
+    size_t cb_words = (size_t)m->hv_words * (size_t)n_classes;
+    if (fread(m->codebook, sizeof(uint64_t), cb_words, f) != cb_words) {
         an_hdc_free(m); goto fail;
     }
 
@@ -992,6 +1033,19 @@ fail:
     return NULL;
 }
 
+int an_hdc_get_n_vars(const an_hdc_model *m) { return m ? m->n_vars : -1; }
+int an_hdc_get_n_classes(const an_hdc_model *m) { return m ? m->n_classes : -1; }
+int an_hdc_get_table_size(const an_hdc_model *m) { return m ? m->table_size : -1; }
+int an_hdc_get_hv_dim(const an_hdc_model *m) { return m ? m->hv_dim : -1; }
+int an_hdc_get_hv_words(const an_hdc_model *m) { return m ? m->hv_words : -1; }
+int an_hdc_get_codebook(const an_hdc_model *m, uint64_t *out, int out_words) {
+    if (!m || !out) return -1;
+    size_t needed = (size_t)m->n_classes * (size_t)m->hv_words;
+    if (out_words < 0 || (size_t)out_words < needed) return -1;
+    memcpy(out, m->codebook, needed * sizeof(uint64_t));
+    return 0;
+}
+
 /* PROMPT-1: Circulant encoding control */
 void an_hdc_set_circulant(an_hdc_model *m, int enable) {
     if (!m) return;
@@ -999,12 +1053,14 @@ void an_hdc_set_circulant(an_hdc_model *m, int enable) {
         hdc_circulant_init(&m->circulant, 0xdeadbeef12345678ULL, 0xcafe9876abcd0123ULL, m->hv_words, m->hv_dim);
     }
     m->use_circulant = enable;
+    if (enable) m->use_cache = 0;
 }
 
 /* Melhoria 3: Hadamard encoding control */
 void an_hdc_set_hadamard(an_hdc_model *m, int enable) {
     if (!m) return;
     m->use_hadamard = enable;
+    if (enable) m->use_cache = 0;
 }
 
 /* PROMPT-2: Early termination control */
@@ -1115,37 +1171,48 @@ void an_hdc_predict_top_k(const an_hdc_model *m, const double *x,
     if (!m || !x || !out_classes || k <= 0) return;
     if (k > m->n_classes) k = m->n_classes;
 
-    /* Encode input to query hypervector (same logic as an_hdc_predict) */
+    /* Encode input to query hypervector using the same base and interaction
+     * signals as an_hdc_predict. */
     uint16_t counts[m->hv_dim]; memset(counts, 0, m->hv_dim * sizeof(uint16_t));
+    uint64_t *var_hvs = NULL;
+    if (m->n_interaction_pairs > 0)
+        var_hvs = (uint64_t *)safe_aligned_alloc(64, (size_t)m->n_vars * m->hv_words * sizeof(uint64_t));
 
     for (int v = 0; v < m->n_vars; v++) {
-        int bin = ((int)x[v] + m->bias[v]) & m->table_mask;
-        
         uint64_t pair_hv[m->hv_words];
-        if (m->use_hadamard) {
-            hv_from_hadamard(pair_hv, v, bin, m->hv_words, m->hv_dim);
-        } else if (m->use_circulant && m->circulant.circulant_ready) {
-            hv_from_circulant(pair_hv, &m->circulant, v, bin, m->hv_words, m->hv_dim);
-        } else {
-            uint64_t val_hv[m->hv_words];
-            uint64_t seed = (uint64_t)v * 100003ULL + (uint64_t)bin;
-            hv_from_seed(val_hv, seed, m->hv_words);
-            hv_bind(pair_hv, &m->position_hvs[v * m->hv_words], val_hv, m->hv_words);
-        }
-
+        an_hdc_encode(m, v, x[v], pair_hv);
+        if (var_hvs) hv_copy(&var_hvs[v * m->hv_words], pair_hv, m->hv_words);
         for (int w = 0; w < m->hv_words; w++) {
             uint64_t word = pair_hv[w];
             int base = w * 64;
             while (word) {
                 int bit = __builtin_ctzll(word);
-                if (base + bit < m->hv_dim)
-                    counts[base + bit]++;
+                if (base + bit < m->hv_dim) counts[base + bit]++;
                 word &= word - 1;
             }
         }
     }
+    if (var_hvs) {
+        for (int pair = 0; pair < m->n_interaction_pairs; pair++) {
+            int pi = m->interaction_pairs[pair].i;
+            int pj = m->interaction_pairs[pair].j;
+            uint64_t interaction_hv[m->hv_words];
+            hv_bind(interaction_hv, &var_hvs[pi * m->hv_words],
+                    &var_hvs[pj * m->hv_words], m->hv_words);
+            for (int w = 0; w < m->hv_words; w++) {
+                uint64_t word = interaction_hv[w];
+                int base = w * 64;
+                while (word) {
+                    int bit = __builtin_ctzll(word);
+                    if (base + bit < m->hv_dim) counts[base + bit]++;
+                    word &= word - 1;
+                }
+            }
+        }
+        free(var_hvs);
+    }
 
-    int threshold = m->n_vars / 2;
+    int threshold = (m->n_vars + m->n_interaction_pairs) / 2;
     uint64_t query[m->hv_words];
     memset(query, 0, m->hv_words * sizeof(uint64_t));
     for (int i = 0; i < m->hv_dim; i++) {

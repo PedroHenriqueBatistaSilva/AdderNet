@@ -12,6 +12,7 @@ Usage:
 """
 
 import os
+import sys
 import ctypes
 import numpy as np
 
@@ -31,18 +32,20 @@ def _log(msg: str):
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BUILD = os.path.join(_HERE, "..", "build")
-_LIB_NAMES = [
-    os.path.join(_BUILD, "libaddernet_hdc.so"),
-    os.path.join(_HERE, "libaddernet_hdc.so"),
-    os.path.join(_HERE, "libaddernet_hdc.dylib"),
-    "libaddernet_hdc.so",
-]
+if sys.platform == "darwin":
+    _hdc_names = ["libaddernet_hdc.dylib"]
+    _cuda_names = ["libaddernet_cuda.dylib"]
+elif os.name == "nt":
+    _hdc_names = ["addernet_hdc.dll"]
+    _cuda_names = ["addernet_cuda.dll"]
+else:
+    _hdc_names = ["libaddernet_hdc.so"]
+    _cuda_names = ["libaddernet_cuda.so"]
+_LIB_NAMES = ([os.path.join(_BUILD, name) for name in _hdc_names] +
+              [os.path.join(_HERE, name) for name in _hdc_names] + _hdc_names)
 
-_CUDA_LIB_NAMES = [
-    os.path.join(_HERE, "libaddernet_cuda.so"),
-    os.path.join(_BUILD, "libaddernet_cuda.so"),
-    "libaddernet_cuda.so",
-]
+_CUDA_LIB_NAMES = ([os.path.join(_HERE, name) for name in _cuda_names] +
+                   [os.path.join(_BUILD, name) for name in _cuda_names] + _cuda_names)
 
 _lib = None
 for _name in _LIB_NAMES:
@@ -381,6 +384,15 @@ _lib.an_hdc_save.argtypes = [_AnHdcPtr, ctypes.c_char_p]
 _lib.an_hdc_load.restype = _AnHdcPtr
 _lib.an_hdc_load.argtypes = [ctypes.c_char_p]
 
+for _getter in ("an_hdc_get_n_vars", "an_hdc_get_n_classes", "an_hdc_get_table_size",
+                "an_hdc_get_hv_dim", "an_hdc_get_hv_words"):
+    getattr(_lib, _getter).restype = ctypes.c_int
+    getattr(_lib, _getter).argtypes = [_AnHdcPtr]
+_lib.an_hdc_get_codebook.restype = ctypes.c_int
+_lib.an_hdc_get_codebook.argtypes = [
+    _AnHdcPtr, ctypes.POINTER(ctypes.c_uint64), ctypes.c_int
+]
+
 # OPT-1: Cache functions
 _lib.an_hdc_warm_cache.restype = None
 _lib.an_hdc_warm_cache.argtypes = [_AnHdcPtr]
@@ -440,36 +452,8 @@ _lib.hdc_detect_backend.argtypes = []
 _lib.hv_seed.restype = None
 _lib.hv_seed.argtypes = [ctypes.c_uint]
 
-# HDC primitive bindings (for direct hypervector manipulation)
-
-_HV_WORDS = 40  # HDC_WORDS = ceil(2500/64)
-_HV_DIM = 2500  # HDC_DIM — actual hypervector dimensionality
-HDC_BYTES = _HV_WORDS * 8  # 320 bytes per hypervector
-_HV_t = ctypes.c_uint64 * _HV_WORDS
-
-_lib.hv_bind.restype = None
-_lib.hv_bind.argtypes = [_HV_t, _HV_t, _HV_t]
-
-_lib.hv_bundle.restype = None
-_lib.hv_bundle.argtypes = [_HV_t, ctypes.POINTER(_HV_t), ctypes.c_int]
-
-_lib.hv_hamming.restype = ctypes.c_int
-_lib.hv_hamming.argtypes = [_HV_t, _HV_t]
-
-_lib.hv_similarity.restype = ctypes.c_float
-_lib.hv_similarity.argtypes = [_HV_t, _HV_t]
-
-_lib.hv_random.restype = None
-_lib.hv_random.argtypes = [_HV_t]
-
-_lib.hv_add_noise.restype = None
-_lib.hv_add_noise.argtypes = [_HV_t, _HV_t, ctypes.c_float]
-
-_lib.hv_copy.restype = None
-_lib.hv_copy.argtypes = [_HV_t, _HV_t]
-
-_lib.hv_add_noise.restype = None
-_lib.hv_add_noise.argtypes = [_HV_t, _HV_t, ctypes.c_float]
+# Hypervector size is model-specific; use ``model.hv_dim`` and
+# ``model.hv_words`` instead of module-level fixed constants.
 
 
 # ---- Python wrapper ----
@@ -493,16 +477,28 @@ class AdderNetHDC:
             seed:       random seed for reproducibility
             use_gpu:    toggle between CPU and CUDA backend
         """
-        self.use_gpu = use_gpu
-        self.use_gpu_training = use_gpu_training
-        self.hv_dim = hv_dim
+        self.use_gpu = bool(use_gpu)
+        self.use_gpu_training = bool(use_gpu_training)
 
         if _ptr is not None:
             self._ptr = _ptr
-            self._n_vars = n_vars
-            self._n_classes = n_classes
-            self._table_size = table_size
+            self._n_vars = _lib.an_hdc_get_n_vars(_ptr)
+            self._n_classes = _lib.an_hdc_get_n_classes(_ptr)
+            self._table_size = _lib.an_hdc_get_table_size(_ptr)
+            self.hv_dim = _lib.an_hdc_get_hv_dim(_ptr)
+            self.hv_words = _lib.an_hdc_get_hv_words(_ptr)
+            if min(self._n_vars, self._n_classes, self._table_size, self.hv_dim, self.hv_words) <= 0:
+                raise RuntimeError("loaded HDC model has invalid metadata")
             return
+
+        if n_vars <= 0 or n_classes <= 0 or hv_dim <= 0:
+            raise ValueError("n_vars, n_classes and hv_dim must be positive")
+        if table_size <= 0 or table_size & (table_size - 1):
+            raise ValueError("table_size must be a positive power of two")
+        if bias is not None and len(bias) != n_vars:
+            raise ValueError("bias must contain one value per input variable")
+        self.hv_dim = int(hv_dim)
+        self.hv_words = (self.hv_dim + 63) // 64
 
         _lib.hv_seed(seed)
 
@@ -521,6 +517,23 @@ class AdderNetHDC:
         if hasattr(self, "_ptr") and self._ptr:
             _lib.an_hdc_free(self._ptr)
             self._ptr = None
+
+    def _validate_X(self, X, *, allow_empty=False):
+        X = np.ascontiguousarray(X, dtype=np.float64)
+        if X.ndim == 1:
+            if X.size == self._n_vars:
+                X = X.reshape(1, self._n_vars)
+            elif X.size % self._n_vars == 0:
+                X = X.reshape(-1, self._n_vars)
+            else:
+                raise ValueError(f"input length must be a multiple of n_vars={self._n_vars}")
+        if X.ndim != 2 or X.shape[1] != self._n_vars:
+            raise ValueError(f"X must have shape (n_samples, {self._n_vars})")
+        if not allow_empty and X.shape[0] == 0:
+            raise ValueError("X must contain at least one sample")
+        if not np.all(np.isfinite(X)):
+            raise ValueError("X must contain only finite values")
+        return X
 
     def train(self, X, y, n_iter=0, lr=1.0, margin=0, regenerate=0.0,
               patience=10, verbose=False, interactions=0):
@@ -553,15 +566,14 @@ class AdderNetHDC:
                 'best_epoch': epoch of best val accuracy,
                 'stopped_early': True if early stopping triggered
         """
-        X = np.ascontiguousarray(X, dtype=np.float64)
-        y = np.ascontiguousarray(y, dtype=np.int32)
-
-        if X.ndim == 1:
-            X = X.reshape(-1, self._n_vars)
+        X = self._validate_X(X)
+        y = np.ascontiguousarray(y, dtype=np.int32).reshape(-1)
 
         n = X.shape[0]
         if len(y) != n:
             raise ValueError(f"X has {n} samples but y has {len(y)}")
+        if np.any(y < 0) or np.any(y >= self._n_classes):
+            raise ValueError(f"class labels must be in [0, {self._n_classes - 1}]")
 
         # Default history for single-pass training
         history = {
@@ -600,7 +612,7 @@ class AdderNetHDC:
         )
 
         if n_iter > 0:
-            D = _HV_WORDS * 64  # total bits no hipervector (2500)
+            D = self.hv_dim
 
             # ── Conversão de margin ──────────────────────────────
             if margin == 0 or margin is None:
@@ -716,7 +728,7 @@ class AdderNetHDC:
         Returns:
             predicted class label (int)
         """
-        x = np.ascontiguousarray(x, dtype=np.float64)
+        x = self._validate_X(x)[0]
         return _lib.an_hdc_predict(
             self._ptr,
             x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
@@ -731,9 +743,7 @@ class AdderNetHDC:
         Returns:
             numpy array of predicted class labels
         """
-        X = np.ascontiguousarray(X, dtype=np.float64)
-        if X.ndim == 1:
-            X = X.reshape(-1, self._n_vars)
+        X = self._validate_X(X)
         n = X.shape[0]
         outputs = np.empty(n, dtype=np.int32)
         
@@ -747,12 +757,14 @@ class AdderNetHDC:
                 n,
             )
         else:
-            _lib.an_hdc_predict_batch(
+            ret = _lib.an_hdc_predict_batch(
                 self._ptr,
                 X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                 outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
                 n,
             )
+            if ret != 0:
+                raise RuntimeError("an_hdc_predict_batch failed")
         return outputs
 
     def predict_batch_avx(self, X):
@@ -765,17 +777,17 @@ class AdderNetHDC:
         Returns:
             numpy array of predicted class labels
         """
-        X = np.ascontiguousarray(X, dtype=np.float64)
-        if X.ndim == 1:
-            X = X.reshape(-1, self._n_vars)
+        X = self._validate_X(X)
         n = X.shape[0]
         outputs = np.empty(n, dtype=np.int32)
-        _lib.an_hdc_predict_batch_avx(
+        ret = _lib.an_hdc_predict_batch_avx(
             self._ptr,
             X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
             outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
             n,
         )
+        if ret != 0:
+            raise RuntimeError("an_hdc_predict_batch_avx failed")
         return outputs
 
     def predict_batch_mt(self, X, n_threads=0):
@@ -788,18 +800,18 @@ class AdderNetHDC:
         Returns:
             numpy array of predicted class labels
         """
-        X = np.ascontiguousarray(X, dtype=np.float64)
-        if X.ndim == 1:
-            X = X.reshape(-1, self._n_vars)
+        X = self._validate_X(X)
         n = X.shape[0]
         outputs = np.empty(n, dtype=np.int32)
-        _lib.an_hdc_predict_batch_mt(
+        ret = _lib.an_hdc_predict_batch_mt(
             self._ptr,
             X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
             outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
             n,
-            n_threads,
+            int(n_threads),
         )
+        if ret != 0:
+            raise RuntimeError("an_hdc_predict_batch_mt failed")
         return outputs
 
     def warm_cache(self):
@@ -861,88 +873,45 @@ class AdderNetHDC:
         return np.mean(y_pred == y)
 
     def add_noise(self, hv, temperature):
-        """
-        Add noise to a hypervector with given temperature.
-
-        Args:
-            hv: hypervector (numpy array of uint64)
-            temperature: 0.0 = no noise, 1.0 = total noise
-        Returns:
-            new hypervector with noise applied
-        """
-        import random
-        src = np.ascontiguousarray(hv, dtype=np.uint64).copy()
+        """Return a copy with each valid bit flipped independently."""
+        if not 0.0 <= temperature <= 1.0:
+            raise ValueError("temperature must be between 0 and 1")
+        src = np.ascontiguousarray(hv, dtype=np.uint64).reshape(-1)
+        if len(src) != self.hv_words:
+            raise ValueError(f"hypervector must contain {self.hv_words} uint64 words")
+        rng = np.random.default_rng()
         dst = src.copy()
-        
-        if temperature <= 0.0:
-            return dst
-        if temperature >= 1.0:
-            for w in range(_HV_WORDS):
-                for b in range(64):
-                    if random.random() < temperature:
-                        dst[w] ^= (1 << b)
-            return dst
-        
-        threshold = int(temperature * 256)
-        for w in range(_HV_WORDS):
-            for b in range(64):
-                if random.randint(0, 255) < threshold:
-                    dst[w] ^= (1 << b)
+        for bit in np.flatnonzero(rng.random(self.hv_dim) < temperature):
+            dst[bit // 64] ^= np.uint64(1) << np.uint64(bit % 64)
+        if self.hv_dim % 64:
+            dst[-1] &= np.uint64((1 << (self.hv_dim % 64)) - 1)
         return dst
 
     def bundle_classes(self, class_indices):
-        """
-        Bundle multiple class prototypes into one (criatividade).
-
-        Args:
-            class_indices: list of class indices to bundle
-        Returns:
-            bundled hypervector
-        """
-        cb = self.codebook
-        n = len(class_indices)
-        result = np.zeros(_HV_WORDS, dtype=np.uint64)
-        
-        if n == 0:
-            return result
-        if n == 1:
-            return cb[class_indices[0]].copy()
-        
-        for i, idx in enumerate(class_indices):
-            if i == 0:
-                result[:] = cb[idx][:]
-            else:
-                counts = np.zeros(_HV_WORDS * 64, dtype=np.uint16)
-                threshold = (i + 1) // 2
-                for w in range(_HV_WORDS):
-                    for bit in range(64):
-                        if (cb[idx][w] >> bit) & 1:
-                            counts[w * 64 + bit] += 1
-                for w in range(_HV_WORDS):
-                    for bit in range(64):
-                        if counts[w * 64 + bit] > threshold:
-                            result[w] |= (1 << bit)
-        return result
+        """Majority-bundle selected class prototypes."""
+        indices = np.asarray(class_indices, dtype=np.int64).reshape(-1)
+        if np.any(indices < 0) or np.any(indices >= self._n_classes):
+            raise ValueError("class index out of range")
+        if len(indices) == 0:
+            return np.zeros(self.hv_words, dtype=np.uint64)
+        selected = np.stack([self.codebook[int(i)] for i in indices])
+        bytes_view = selected.view(np.uint8).reshape(len(selected), -1)
+        bits = np.unpackbits(bytes_view, axis=1, bitorder="little")[:, :self.hv_dim]
+        majority = bits.sum(axis=0) > (len(selected) / 2)
+        packed = np.packbits(majority, bitorder="little")
+        padded = np.zeros(self.hv_words * 8, dtype=np.uint8)
+        padded[:len(packed)] = packed
+        return padded.view(np.uint64).copy()
 
     def classify_hv(self, hv):
-        """
-        Classify a hypervector by finding closest codebook entry.
-
-        Args:
-            hv: hypervector to classify (numpy array or list)
-        Returns:
-            predicted class index
-        """
+        """Classify a hypervector using true bitwise Hamming distance."""
+        hv_arr = np.ascontiguousarray(hv, dtype=np.uint64).reshape(-1)
+        if len(hv_arr) != self.hv_words:
+            raise ValueError(f"hypervector must contain {self.hv_words} uint64 words")
         cb = self.codebook
-        hv_arr = np.ascontiguousarray(hv, dtype=np.uint64)
-        best_c = 0
-        best_d = int(np.sum(hv_arr != cb[0]))
-        for c in range(1, self._n_classes):
-            d = int(np.sum(hv_arr != cb[c]))
-            if d < best_d:
-                best_d = d
-                best_c = c
-        return best_c
+        xor = np.bitwise_xor(cb, hv_arr[None, :])
+        dist = np.unpackbits(xor.view(np.uint8), axis=1).sum(axis=1)
+        return int(np.argmin(dist))
 
     def save(self, path):
         """Save model to binary file."""
@@ -972,41 +941,22 @@ class AdderNetHDC:
 
     @property
     def codebook(self):
-        """
-        Return the trained codebook as a list of numpy uint64 arrays.
-        Each array has 157 words (10000 bits).
-
-        Requires the model to be trained first.
-        """
-        _HDC_WORDS = _HV_WORDS
-
-        # Read the codebook pointer from the an_hdc_model struct.
-        # On x86_64, the codebook hv_t* field is at byte offset 32
-        # (after n_vars, n_classes, table_size, table_mask, bias*, enc_table*).
-        buf = ctypes.string_at(self._ptr, 48)  # read first 48 bytes of struct
-        cb_addr = int.from_bytes(buf[32:40], byteorder='little')
-        if cb_addr == 0:
-            raise RuntimeError("Model not trained yet (codebook is NULL)")
-
-        # Cast the address to a flat uint64 array
-        cb = ctypes.cast(
-            ctypes.c_void_p(cb_addr),
-            ctypes.POINTER(ctypes.c_uint64 * (_HDC_WORDS * self._n_classes))
+        """Return a copy of the trained codebook as ``(classes, words)``."""
+        total = self._n_classes * self.hv_words
+        flat = np.empty(total, dtype=np.uint64)
+        ret = _lib.an_hdc_get_codebook(
+            self._ptr,
+            flat.ctypes.data_as(ctypes.POINTER(ctypes.c_uint64)),
+            total,
         )
-
-        result = []
-        flat = cb.contents  # the full (HDC_WORDS * n_classes) uint64 array
-        for c in range(self._n_classes):
-            offset = c * _HDC_WORDS
-            hv = np.array([flat[offset + i] for i in range(_HDC_WORDS)],
-                          dtype=np.uint64)
-            result.append(hv)
-        return result
+        if ret != 0:
+            raise RuntimeError("failed to read HDC codebook")
+        return flat.reshape(self._n_classes, self.hv_words)
 
     def __repr__(self):
         return (f"AdderNetHDC(n_vars={self._n_vars}, "
                 f"n_classes={self._n_classes}, "
-                f"table_size={self._table_size})")
+                f"table_size={self._table_size}, hv_dim={self.hv_dim})")
 
 
 def hdc_detect_backend():
@@ -1016,5 +966,5 @@ def hdc_detect_backend():
     Returns:
         'AVX2', 'NEON', or 'SCALAR'
     """
-    backends = ["SCALAR", "AVX2", "NEON"]
-    return backends[_lib.hdc_detect_backend()]
+    backends = {0: "SCALAR", 1: "AVX2", 2: "NEON"}
+    return backends.get(_lib.hdc_detect_backend(), "UNKNOWN")
