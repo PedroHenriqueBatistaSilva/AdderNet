@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.5.0.post1 — Learning Edition
+## 1.5.0 — Official Release
 
 ### Correções
 

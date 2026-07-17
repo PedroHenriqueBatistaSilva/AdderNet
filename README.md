@@ -1,47 +1,64 @@
-# AdderNet Learning Edition — 1.5.0.post1
+# AdderNet — Inference Without Multiplication
 
-Uma edição corrigida e pedagógica da AdderNet: aprendizagem por tabelas de consulta (LUT), Hyperdimensional Computing (HDC), ensembles aditivos e attention por distância L1.
+**Version 1.5.0** — Official Release
 
-> **Honestidade técnica:** a inferência de uma `AdderNetLayer` treinada é essencialmente indexação de tabela. Quantização, HDC, attention, pré-processamento e componentes Python podem usar outras operações. “Zero multiplicação” deve ser entendido como propriedade do caminho LUT central, não de todo pipeline possível.
+A machine learning library that performs inference without floating-point multiplications. Uses table lookups (LUT), integer addition, and Hyperdimensional Computing (HDC) — targeting embedded systems without FPUs (ESP32, STM32, Raspberry Pi).
 
-## Instalação
+> **Technical honesty**: a trained `AdderNetLayer` inference is `result = offset_table[(int(input) + bias) & mask]` — one indexed load, zero arithmetic. Quantization, HDC encoding, attention, preprocessing, and Python glue may use other operations. "Zero multiplication" is a property of the core LUT path, not of every possible pipeline.
+
+---
+
+## Components
+
+| Component | Description | API |
+|---|---|---|
+| `AdderNetLayer` | Scalar LUT regressor — C native, ctypes binding | `train()`, `predict()`, `predict_batch()`, `save()`, `load()` |
+| `ReferenceAdderNetLayer` | Pure NumPy equivalent for learning/debugging | Same API, optional `trace` callback |
+| `UniformQuantizer` | Explicit continuous-to-integer binning | `fit()`, `transform()`, `fit_transform()` |
+| `AdderNetAdditiveRegressor` | Multivariate GAM — one LUT per feature, backfitting | `fit()`, `predict()`, `save()`, `load()` |
+| `AdderNetHDC` | Multivariate HDC classifier with GPU training | `train()`, `predict_batch()`, retraining |
+| `AdderCluster` | Ensemble of LUT nodes (random/range/feature/boosting split) | `fit()`, `predict_batch()`, `predict_single_fast()` |
+| `AdderBoost` | Gradient boosting with LUT base learners | `fit()`, `predict_batch()`, `predict()` |
+| `AdderAttention` | Stateless L1-distance attention | `forward(Q, K, V)`, `scores(Q, K)` |
+
+---
+
+## Installation
 
 ```bash
-python -m pip install .
+pip install .
 addernet-selftest
 ```
 
-Ao importar diretamente do código-fonte, a biblioteca tenta compilar as extensões CPU com `gcc`, `clang` ou `cc`. Desative isso com:
+Auto-builds CPU libraries with `gcc`/`clang`/`cc` on import. Disable with:
 
 ```bash
-ADDERNET_AUTOBUILD=0 python seu_script.py
+ADDERNET_AUTOBUILD=0 python your_script.py
 ```
 
-Para otimizações nativas da CPU local:
+For native CPU optimizations (AVX2 on x86_64, NEON on ARM):
 
 ```bash
 ADDERNET_NATIVE=1 addernet-build
 ```
 
-## Primeira LUT
+---
+
+## Quick Start
+
+### Scalar LUT Regression
 
 ```python
 from addernet import AdderNetLayer
 
 layer = AdderNetLayer(size=256, bias=0, input_min=0, input_max=100, lr=0.1)
 layer.train([0, 10, 20, 30], [32, 50, 68, 86])
-print(layer.predict(25))
+print(layer.predict(25))  # 59.0
 ```
 
-A camada converte a entrada para inteiro, calcula:
+Inference is a single table lookup: `offset_table[(int(x) + bias) & mask]`.
 
-```text
-index = (int(input) + bias) & (size - 1)
-```
-
-E retorna `offset_table[index]`.
-
-## Implementação transparente em Python
+### Reference Implementation (Pure Python)
 
 ```python
 from addernet import ReferenceAdderNetLayer
@@ -51,9 +68,9 @@ layer.train([0, 8, 16, 24, 31], [2, 14, 26, 38, 48.5])
 print(layer.offset_table)
 ```
 
-`ReferenceAdderNetLayer` é deliberadamente lenta, mas permite estudar e depurar o algoritmo sem `ctypes` nem C.
+Slower but transparent — no `ctypes`, no C. Useful for studying the algorithm.
 
-## Regressão multivariada aditiva
+### Multivariate Additive Regression
 
 ```python
 import numpy as np
@@ -64,18 +81,16 @@ X = rng.uniform(-3, 3, size=(500, 3))
 y = 1.8 * X[:, 0] - 0.5 * X[:, 1] + np.sin(X[:, 2])
 
 model = AdderNetAdditiveRegressor(
-    table_size=128,
-    backfit_rounds=3,
-    epochs_raw=50,
-    epochs_expanded=100,
+    table_size=128, backfit_rounds=3,
+    epochs_raw=50, epochs_expanded=100,
 ).fit(X[:400], y[:400])
 
 print(np.mean(np.abs(model.predict(X[400:]) - y[400:])))
 ```
 
-Esse modelo é um **Generalized Additive Model** construído com uma LUT por recurso e saída. Interações devem ser criadas explicitamente como novas features.
+A **Generalized Additive Model** — one LUT per feature, fitted via backfitting. Provide interactions as explicit features.
 
-## HDC
+### HDC Classification
 
 ```python
 import numpy as np
@@ -84,14 +99,45 @@ from addernet import AdderNetHDC
 X = np.array([[0, 0], [0, 1], [9, 10], [10, 9]], dtype=np.float64)
 y = np.array([0, 0, 1, 1], dtype=np.int32)
 
-model = AdderNetHDC(n_vars=2, n_classes=2, hv_dim=1025, seed=7)
+model = AdderNetHDC(n_vars=2, n_classes=2, hv_dim=1024, seed=7)
 model.train(X, y, n_iter=5, patience=0)
 print(model.predict_batch(X))
 ```
 
-Dimensões não múltiplas de 64 são suportadas com bounds checks no caminho AVX.
+Hyperdimensional Computing with OnlineHD training, AdaptHD retraining, and early-exit Hamming distance. Non-multiple-of-64 dimensions supported with bounds checks in AVX.
 
-## Attention correta
+### Ensemble (AdderCluster)
+
+```python
+from addernet import AdderCluster
+import numpy as np
+
+X = np.random.rand(100, 4) * 100
+y = np.random.randint(0, 3, size=100)
+
+cluster = AdderCluster(n_nodes=3, strategy='range', combination='vote')
+cluster.fit(X, y)
+print(cluster.predict_batch(X[:5]))
+```
+
+Multiple partitioning strategies (`random`, `range`, `feature`, `boosting`) and combination methods (`vote`, `mean`, `stack`).
+
+### Gradient Boosting (AdderBoost)
+
+```python
+from addernet import AdderBoost
+import numpy as np
+
+X = np.random.rand(100, 3) * 50
+y = 2.0 * X[:, 0] - 1.5 * X[:, 1] + 0.3 * X[:, 2]
+
+boost = AdderBoost(n_estimators=5, learning_rate=0.1,
+                   size=256, bias=0, input_min=0, input_max=50, lr=0.05)
+boost.fit(X, y)
+print(boost.predict_batch(X[:5]))
+```
+
+### L1 Attention
 
 ```python
 import numpy as np
@@ -106,74 +152,149 @@ output = attn(Q, K, V)  # shape: (2, 3, 6)
 scores = attn.scores(Q, K)
 ```
 
-A classe é uma operação **sem estado** baseada em distância L1 negativa. Ela não possui `fit()` nem `predict()`.
+Stateless attention based on negative L1 distance — no `fit()` or `predict()`.
 
-## Componentes
+### Quantization Preprocessor
 
-| Componente | Uso |
-|---|---|
-| `AdderNetLayer` | função escalar quantizada por LUT nativa |
-| `ReferenceAdderNetLayer` | versão legível em NumPy |
-| `UniformQuantizer` | quantização explícita de entradas contínuas |
-| `AdderNetAdditiveRegressor` | regressão multivariada aditiva |
-| `AdderNetHDC` | classificação multivariada com hipervetores |
-| `AdderCluster` | ensemble de LUTs |
-| `AdderBoost` | boosting aditivo |
-| `AdderAttention` | pooling por distância L1 |
+```python
+from addernet import UniformQuantizer
+import numpy as np
 
-## Correções desta edição
-
-- auto-build CPU realmente compila e verifica as duas bibliotecas antes do import;
-- `addernet-build` retorna código de sucesso correto;
-- compilação portátil, sem forçar AVX2 em toda CPU;
-- lookup de bibliotecas Linux/macOS/Windows corrigido nos bindings;
-- overflow no batch AVX para `hv_dim` não múltiplo de 64 corrigido;
-- serialização HDC preserva dimensionalidade dinâmica;
-- acesso ao `codebook` usa layout correto;
-- limitação de threads evita criação excessiva;
-- entradas vazias, incompatíveis, `NaN` e infinito são validadas;
-- treino com uma amostra ou entradas duplicadas é seguro;
-- documentação de `AdderAttention` sincronizada com a implementação;
-- suíte lenta foi movida para `benchmarks/`, mantendo `pytest` rápido;
-- implementação Python de referência adicionada;
-- regressor multivariado aditivo e quantizador adicionados;
-- CLI `addernet-selftest` adicionada.
-
-## Testes
-
-```bash
-python -m pytest -q
-python benchmarks/validation_suite.py  # validação mais longa
+q = UniformQuantizer(bins=256)
+X = np.array([[1.5, 2.7], [3.1, 4.2], [5.0, 6.0]])
+q.fit(X)
+Xq = q.transform(X)  # integer indices [0..255]
 ```
 
-## Estrutura
+---
+
+## CUDA 2026 Backend
+
+The HDC classifier includes GPU-accelerated training and inference:
+
+| Variant | Architecture | Shared Memory | Kernel |
+|---|---|---|---|
+| `ampere` | sm_80+ (A100, H100, RTX 3090+) | 100 KB | Cooperative, warp-level ops |
+| `turing` | sm_70–75 (V100, RTX 2080) | 64 KB | Standard parallel |
+| `legacy` | sm_61 and below (Pascal, GTX 1060) | — | Basic CUDA |
+
+- `use_gpu=True` enables GPU batch prediction
+- `use_gpu_training=True` enables GPU-accelerated AdaptHD retraining
+- Automatic fallback to CPU (AVX2/NEON/scalar) when CUDA is unavailable
+- Multi-architecture compilation with `make cuda_2026`
+- Capability-based kernel selection via `CUDADetector`
+
+```python
+from addernet import AdderNetHDC, hdc_detect_backend
+
+model = AdderNetHDC(n_vars=4, n_classes=3, hv_dim=1024, use_gpu=True)
+print(hdc_detect_backend())  # 'cpu', 'cuda', or 'cuda_2026'
+```
+
+### CUDA Detection
+
+```python
+from addernet import get_cuda_info
+
+info = get_cuda_info()
+if info:
+    print(f"GPU: {info['gpu_name']} (sm_{info['capability_int']})")
+    print(f"Kernel variant: {info['kernel_variant']}")
+```
+
+---
+
+## CLI Tools
+
+| Command | Description |
+|---|---|
+| `addernet-build` | Compile C/CUDA libraries at runtime |
+| `addernet-selftest` | Run smoke test to verify installation |
+
+---
+
+## Serialization
+
+| Component | Format | Methods |
+|---|---|---|
+| `AdderNetLayer` | Binary `.bin` | `save(path)`, `load(path)` |
+| `AdderNetAdditiveRegressor` | JSON manifest + per-layer `.bin` | `save(directory)`, `load(directory)` |
+| `ReferenceAdderNetLayer` | NumPy `.npz` | `save(path)`, `load(path)` |
+
+---
+
+## Testing
+
+```bash
+python -m pytest -q                    # fast unit tests
+python benchmarks/validation_suite.py  # long validation suite
+python test_validation.py              # scikit-learn dataset validation
+```
+
+C unit tests (requires Makefile):
+
+```bash
+make test          # build + run all C tests
+make test_addernet # AdderNetLayer C tests only
+make test_hdc      # HDC C tests only
+```
+
+---
+
+## Project Structure
 
 ```text
 addernet/
-  addernet.py          binding da LUT nativa
-  addernet_hdc.py      binding HDC
-  reference.py         implementação pedagógica
-  vector.py            regressão multivariada aditiva
-  attention.py         attention L1
-  cluster.py           ensemble
-  boost.py             boosting
-  build_ext.py         compilação CPU portátil
-  src/                 fontes C incluídos no wheel
-src/                    fontes C do repositório
-examples/               exemplos executáveis
-tests/                  testes rápidos
-benchmarks/             validações longas
-APOSTILA_ADDERNET.html   curso interativo completo
+  __init__.py          public API, auto-build, version
+  addernet.py          AdderNetLayer ctypes binding
+  addernet_hdc.py      AdderNetHDC ctypes binding (+ GPU)
+  reference.py         ReferenceAdderNetLayer + UniformQuantizer
+  vector.py            AdderNetAdditiveRegressor
+  attention.py         AdderAttention
+  cluster.py           AdderCluster ensemble
+  boost.py             AdderBoost gradient boosting
+  build_ext.py         portable CPU compiler
+  build_ext_2026.py    CUDA 2026 multi-arch compiler
+  cuda_detector.py     GPU/capability detection via ctypes
+  selftest.py          installation smoke test
+  src/                 bundled C/CUDA sources for runtime build
+src/                   C/CUDA source tree
+  addernet.c/h         scalar LUT layer
+  addernet_hdc.c/h     HDC classifier
+  hdc_core.c/h         hypervector operations
+  hdc_lsh.c/h          locality-sensitive hashing
+  addernet_cuda.cu     GPU training kernels (nvcc)
+  addernet_hdc_train_cuda.cu  AdaptHD retrain (nvcc)
+  cuda_train/          Ampere+ cooperative kernels
+examples/              executable demos
+tests/                 fast unit tests
+benchmarks/            long validation suite
+APOSTILA_ADDERNET.html interactive course
 ```
 
-## Limitações conhecidas
+---
 
-- A LUT nativa recebe uma variável escalar por camada e converte a entrada para inteiro.
-- O regressor multivariado é aditivo; não descobre interações complexas sem features extras.
-- HDC troca parte da precisão por memória associativa e inferência barata.
-- O backend CUDA requer hardware e toolchain compatíveis; esta edição foi validada principalmente em CPU.
-- Nenhuma suíte de testes prova ausência absoluta de bugs em toda plataforma.
+## Platform Support
 
-## Licença
+| Platform | Library | SIMD |
+|---|---|---|
+| Linux | `.so` | AVX2 (x86_64), NEON (ARM) |
+| macOS | `.dylib` | Same as Linux |
+| Windows | `.dll` | (manual compilation) |
+| CUDA | `.so` | sm_61+ (nvcc optional) |
 
-Apache-2.0. Projeto original de Pedro Henrique Batista Silva; esta edição preserva a licença e adiciona correções, material didático e utilitários de aprendizagem.
+---
+
+## Limitations
+
+- `AdderNetLayer` accepts one scalar input per layer; fractional parts are truncated.
+- `AdderNetAdditiveRegressor` is additive — no automatic interaction discovery.
+- HDC trades precision for associative memory and cheap inference.
+- Table size is capped at 256 entries (C constant `AN_TABLE_SIZE`).
+- CUDA backend requires compatible GPU and toolchain.
+
+---
+
+## License
+
+Apache-2.0. Original project by Pedro Henrique Batista Silva.

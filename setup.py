@@ -76,7 +76,7 @@ ext_modules = [
 cmdclass_dict = {'build_ext': MakeBuildExt}
 
 setup(
-    version="1.5.0.post1",
+    version="1.5.0",
     ext_modules=ext_modules,
     cmdclass=cmdclass_dict,
     package_data={'addernet': ['src/*.c', 'src/*.h', 'src/*.cu']}
