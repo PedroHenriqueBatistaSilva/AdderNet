@@ -1,0 +1,9 @@
+{
+  "scalar_iterative_fit_seconds": 0.032862462000025516,
+  "scalar_direct_fit_seconds": 0.002276089000019965,
+  "direct_fit_speedup": 14.438126979980686,
+  "scalar_inference_1m_seconds": 0.002322656999922401,
+  "scalar_inference_million_per_second": 430.5414015213652,
+  "multi_input_50k_fit_seconds": 0.007698193000010178,
+  "multi_input_training_rmse": 0.014218704994510115
+}

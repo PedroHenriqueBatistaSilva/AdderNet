@@ -1,20 +1,3 @@
-include Makefile
-include README.md
-include README_DEV.md
-include CHANGELOG.md
-include VALIDATION_REPORT.md
-include COMECE_AQUI.md
-include LICENSE
-include pyproject.toml
-include pytest.ini
-include APOSTILA_ADDERNET.html
-include src/*.c
-include src/*.h
-include src/*.cu
-recursive-include addernet/src *.c *.h *.cu
-recursive-include examples *.py
-recursive-include benchmarks *.py
+include LICENSE README.md CHANGELOG.md REPORT.md
+recursive-include src/addernet/src *.c *.h *.cu
 recursive-include tests *.py
-exclude addernet/*.so
-exclude addernet/*.dylib
-exclude addernet/*.dll

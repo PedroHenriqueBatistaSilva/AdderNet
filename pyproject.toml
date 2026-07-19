@@ -1,48 +1,55 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "addernet"
-version = "1.5.0"
-description = "Neural networks with zero multiplications at inference. AdderNet + HDC for embedded systems."
+version = "1.6.0"
+description = "Multiplication-free lookup neural models with scalar, multi-input, HDC, and additive APIs"
 readme = "README.md"
+requires-python = ">=3.10"
 license = "Apache-2.0"
-requires-python = ">=3.8"
-dependencies = ["numpy", "scikit-learn", "scipy"]
-authors = [
-    { name = "AdderNet Team" }
+authors = [{name = "AdderNet Team"}]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "scikit-learn>=1.3",
 ]
-keywords = ["machine-learning", "neural-network", "addernet", "hyperdimensional-computing", "embedded", "no-fpu"]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: C",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
-
-[project.urls]
-Homepage = "https://github.com/PedroHenriqueBatistaSilva/AdderNet"
-Repository = "https://github.com/PedroHenriqueBatistaSilva/AdderNet"
+dev = ["pytest>=8", "build>=1", "ruff>=0.6"]
 
 [project.scripts]
 addernet-build = "addernet.build_ext:build"
 addernet-selftest = "addernet.selftest:main"
 
+[project.urls]
+Homepage = "https://github.com/PedroHenriqueBatistaSilva/AdderNet"
+Repository = "https://github.com/PedroHenriqueBatistaSilva/AdderNet"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["addernet*"]
-exclude = ["addernet.egg-info*", "build*", "dist*", "cache*", "colab*", "examples*"]
+where = ["src"]
 
 [tool.setuptools.package-data]
-addernet = ["src/*.c", "src/*.h", "src/*.cu"]
+addernet = [
+  "*.so", "*.dylib", "*.dll",
+  "src/*.c", "src/*.h", "src/*.cu",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

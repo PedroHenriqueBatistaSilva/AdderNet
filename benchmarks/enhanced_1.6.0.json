@@ -1,0 +1,1 @@
+{"version": "1.6.0.dev0", "legacy_train_s": 0.004983358000004046, "direct_fit_s": 0.0002834760000496317, "direct_fit_speedup": 17.579470569401103, "predict_1m_s": 0.0023042149999810135, "throughput_mps": 433.9872798364041}
